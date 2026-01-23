@@ -17,39 +17,33 @@
 ```
 easyAI/
 ├── easyAIApp.swift              # 应用入口
-├── Models/
-│   ├── AIModel.swift            # AI模型数据模型
-│   ├── Message.swift            # 消息数据模型
-│   └── MediaContent.swift       # 媒体内容模型
-├── Services/
-│   ├── OpenRouterStreamService.swift  # OpenRouter流式API服务
-│   └── MessageConverter.swift   # 消息格式转换
-├── ViewModels/
-│   ├── ChatViewModel.swift      # 聊天视图模型
-│   └── ConfigManager.swift      # 配置管理器
-├── Views/
-│   ├── ChatView.swift           # 主聊天界面
-│   ├── ModelSelectorView.swift  # 模型选择器
-│   ├── SettingsView.swift       # 设置界面
-│   ├── TypewriterTextKitView.swift  # 打字机效果视图
-│   └── ScrollViewBounceModifier.swift  # 滚动视图修饰符
-└── Config/
-    └── Config.swift             # 配置文件
+├── Core/
+│   ├── Config/                  # 配置与偏好
+│   ├── Networking/              # OpenRouter 网络层与 SSE 解析
+│   ├── Repositories/            # 数据仓库
+│   ├── Security/                # Keychain 存储
+│   └── UI/                      # 共享 UI 组件
+├── Features/
+│   ├── Chat/                    # 聊天主功能
+│   ├── Models/                  # 模型选择功能
+│   └── Settings/                # 设置界面
+└── Models/
+    ├── AIModel.swift            # AI模型数据模型
+    ├── Message.swift            # 消息数据模型
+    └── MediaContent.swift       # 媒体内容模型
 ```
 
 ## 设置步骤
 
 ### 1. 配置 API Key
 
-打开 `easyAI/Config/Config.swift` 文件，将 `YOUR_OPENAI_API_KEY_HERE` 替换为您的 OpenRouter API Key：
+推荐方式：在 App 的“设置”页面录入 API Key，应用会存入 Keychain。
 
-```swift
-static let apiKey: String = "sk-or-v1-your-actual-api-key-here"
-```
+备用方式：在 `Info.plist` 中添加键 `OPENROUTER_API_KEY` 并填入 Key。
 
 > **获取 API Key**: 访问 [OpenRouter.ai](https://openrouter.ai/) 注册并获取 API Key
 
-**安全提示**：在生产环境中，建议使用环境变量或 iOS Keychain 来存储 API Key，不要将 API Key 提交到版本控制系统。
+**安全提示**：不要将 API Key 提交到版本控制系统。
 
 ### 2. 打开项目
 
@@ -93,14 +87,16 @@ static let apiKey: String = "sk-or-v1-your-actual-api-key-here"
 
 ## 🚀 未来计划
 
-- [ ] 添加消息持久化存储（Core Data 或 SQLite）
-- [ ] 实现对话历史管理
-- [ ] 添加语音输入/输出
-- [ ] 优化 UI 设计和动画效果
-- [ ] 添加暗黑模式支持
-- [ ] 实现 API Key 的安全存储（Keychain）
-- [ ] 支持更多媒体类型（视频、音频、PDF等）
-- [ ] 添加消息导出功能
+- [ ] 对话历史与多会话（列表、重命名、置顶、删除）
+- [ ] 本地持久化（消息与会话离线保存、冷启动恢复）
+- [ ] 模型管理增强（收藏、默认模型、价格/上下文长度展示、仅免费过滤）
+- [ ] 搜索与导出（消息搜索、导出为文本/Markdown/JSON）
+- [ ] 多模态扩展（PDF/音频输入、文件预览与大小限制）
+- [ ] 语音输入/输出（语音转文字、TTS 播放）
+- [ ] 使用统计（调用次数、token 估算、模型花费）
+- [ ] 工具调用（函数调用/工具选择）
+- [ ] 多账号/多 Key（切换 Key、按模型配置）
+- [ ] 消息编辑与重试（编辑上一条、重新生成、停止生成）
 
 ## 📄 许可证
 
@@ -114,4 +110,3 @@ MIT License
 ---
 
 **⭐ 如果这个项目对你有帮助，请给个 Star！**
-

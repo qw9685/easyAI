@@ -1,8 +1,8 @@
-	//
+//
 //  ModelSelectorView.swift
 //  EasyAI
 //
-//  Created on 2024
+//  Created by cc on 2026
 //
 
 import SwiftUI
@@ -14,6 +14,8 @@ struct ModelSelectorView: View {
     @State private var searchText: String = ""
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
+
+    private let modelRepository: ModelRepositoryProtocol = ModelRepository.shared
     
     /// 判断是否已经有从 API 请求到的数据
     /// 如果 availableModels 不为空，说明已经请求过
@@ -194,67 +196,18 @@ struct ModelSelectorView: View {
         errorMessage = nil
         
         Task {
-            do {
-                // 从 OpenRouter API 获取模型列表
-                let models = try await OpenRouterService.shared.fetchModels()
-                
-                // 筛选免费模型（pricing 为 null 或 prompt/completion 价格为 0）
-                let freeModels = models.filter { model in
-                    guard let pricing = model.pricing else { return true }
-                    let promptPrice = Double(pricing.prompt ?? "0") ?? 0
-                    let completionPrice = Double(pricing.completion ?? "0") ?? 0
-                    return promptPrice == 0 && completionPrice == 0
-                }
-                
-                // 转换为 AIModel 格式
-                let convertedModels = freeModels.map { modelInfo in
-                    // 获取输入和输出类型
-                    let inputModalities = modelInfo.architecture?.inputModalities ?? []
-                    let outputModalities = modelInfo.architecture?.outputModalities ?? []
-                    
-                    // 检查模型是否支持多模态（通过检查 input_modalities 是否包含 "image"）
-                    let supportsMultimodal = inputModalities.contains("image")
-                    
-                    return AIModel(
-                        id: "openrouter-\(modelInfo.id.replacingOccurrences(of: "/", with: "-"))",
-                        name: modelInfo.name ?? modelInfo.id,
-                        description: modelInfo.description ?? "OpenRouter 免费模型",
-                        provider: .openrouter,
-                        apiModel: modelInfo.id,
-                        supportsMultimodal: supportsMultimodal,
-                        inputModalities: inputModalities,
-                        outputModalities: outputModalities
-                    )
-                }
-                
-                await MainActor.run {
-                    // 合并本地模型和从 API 获取的模型，去重
-                    var allModels = viewModel.availableModels
-                    for apiModel in convertedModels {
-                        if !allModels.contains(where: { $0.apiModel == apiModel.apiModel }) {
-                            allModels.append(apiModel)
-                        }
-                    }
-                    viewModel.availableModels = allModels
-                    isLoading = false
+            let models = await modelRepository.fetchModels(filter: .all)
+
+            await MainActor.run {
+                if models.isEmpty && !hasFetchedData {
+                    errorMessage = "无法加载在线模型列表，请检查网络连接或API配置"
+                } else if models.isEmpty {
+                    errorMessage = "刷新失败，显示已有数据"
+                } else {
                     errorMessage = nil
+                    viewModel.availableModels = models
                 }
-            } catch {
-                await MainActor.run {
-                    // API 请求失败时，仍然显示本地模型列表
-                    // 只有在没有请求到数据时才显示错误，刷新失败时不影响已有数据
-                    if !hasFetchedData {
-                        // 如果无法加载模型列表，保持空数组，显示错误信息
-                        errorMessage = "无法加载在线模型列表，请检查网络连接或API配置"
-                    } else {
-                        errorMessage = "刷新失败，显示已有数据"
-                    }
-                    isLoading = false
-                    print("[ModelSelectorView] ❌ 获取模型列表失败: \(error)")
-                    if !hasFetchedData {
-                        print("[ModelSelectorView] ℹ️ 使用本地模型列表")
-                    }
-                }
+                isLoading = false
             }
         }
     }

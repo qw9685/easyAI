@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  EasyAI
 //
-//  Created on 2024
+//  Created by cc on 2026
 //
 
 import SwiftUI
@@ -14,17 +14,31 @@ struct SettingsView: View {
     
     @State private var showDeleteConfirmation: Bool = false
     @State private var maxTokensText: String = ""
+    @State private var apiKeyText: String = ""
     
     var body: some View {
         NavigationView {
             Form {
                 // MARK: - API 配置
-                Section(header: Text("API 配置"), footer: Text("使用假数据模式时，将使用模拟响应，不需要 API Key。流式响应可以实时显示 AI 回复内容。")) {
+                Section(header: Text("API 配置"), footer: Text("使用假数据模式时，将使用模拟响应，不需要 API Key。API Key 会安全存入 Keychain。")) {
                     Toggle("使用假数据模式", isOn: $configManager.useMockData)
                     
                     Toggle("启用流式响应", isOn: $configManager.enableStream)
 
                     Toggle("启用 Phase4 日志（turnId/itemId）", isOn: $configManager.enablePhase4Logs)
+
+                    HStack {
+                        Text("OpenRouter API Key")
+                        Spacer()
+                        SecureField("sk-or-v1-...", text: $apiKeyText)
+                            .textInputAutocapitalization(.never)
+                            .disableAutocorrection(true)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 200)
+                            .onChange(of: apiKeyText) { newValue in
+                                SecretsStore.shared.apiKey = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                    }
                     
                     HStack {
                         Text("最大 Token 数")
@@ -74,8 +88,18 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
-                        dismiss()
+                        Task {
+                            await viewModel.loadModels()
+                            await MainActor.run {
+                                dismiss()
+                            }
+                        }
                     }
+                }
+            }
+            .onAppear {
+                if apiKeyText.isEmpty {
+                    apiKeyText = SecretsStore.shared.apiKey
                 }
             }
             .alert("确认删除", isPresented: $showDeleteConfirmation) {

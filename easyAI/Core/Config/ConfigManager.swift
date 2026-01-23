@@ -2,7 +2,7 @@
 //  ConfigManager.swift
 //  EasyAI
 //
-//  Created on 2024
+//  Created by cc on 2026
 //
 
 import Foundation
@@ -58,8 +58,8 @@ class ConfigManager: ObservableObject {
     }
 }
 
-// MARK: - Config Extension
-extension Config {
+// MARK: - AppConfig Extension
+extension AppConfig {
     /// 使用假数据模式（从 ConfigManager 读取）
     static var useMockData: Bool {
         get { ConfigManager.shared.useMockData }

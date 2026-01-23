@@ -2,7 +2,7 @@
 //  AIModel.swift
 //  EasyAI
 //
-//  Created on 2024
+//  Created by cc on 2026
 //
 
 import Foundation
@@ -32,42 +32,7 @@ struct AIModel: Identifiable, Codable, Hashable {
         self.outputModalities = outputModalities
     }
     
-    /// 从 OpenRouter API 获取所有可用模型
-    static func fetchAllModels() async -> [AIModel] {
-        do {
-            let models = try await OpenRouterService.shared.fetchModels()
-            
-            // 转换为 AIModel 格式（获取所有模型）
-            return models.map { modelInfo in
-                // 获取输入和输出类型
-                let inputModalities = modelInfo.architecture?.inputModalities ?? []
-                let outputModalities = modelInfo.architecture?.outputModalities ?? []
-                
-                // 检查模型是否支持多模态（通过检查 input_modalities 是否包含 "image"）
-                let supportsMultimodal = inputModalities.contains("image")
-                
-                return AIModel(
-                    id: "openrouter-\(modelInfo.id.replacingOccurrences(of: "/", with: "-"))",
-                    name: modelInfo.name ?? modelInfo.id,
-                    description: modelInfo.description ?? "OpenRouter 模型",
-                    provider: .openrouter,
-                    apiModel: modelInfo.id,
-                    supportsMultimodal: supportsMultimodal,
-                    inputModalities: inputModalities,
-                    outputModalities: outputModalities
-                )
-            }
-        } catch {
-            print("[AIModel] ⚠️ Failed to fetch models from API: \(error)")
-            // 如果获取失败，返回空数组
-            return []
-        }
-    }
-    
-    /// 可用的模型列表（完全从API获取，不写死任何模型）
-    static func availableModels() async -> [AIModel] {
-        return await fetchAllModels()
-    }
+    // 数据获取由 ModelRepository 负责，避免模型类型直接依赖网络层。
 }
 
 enum ModelProvider: String, Codable, Hashable {

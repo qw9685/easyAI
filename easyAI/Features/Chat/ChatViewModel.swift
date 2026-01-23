@@ -2,7 +2,7 @@
 //  ChatViewModel.swift
 //  EasyAI
 //
-//  Created on 2024
+//  Created by cc on 2026
 //
 
 import Foundation
@@ -28,14 +28,17 @@ class ChatViewModel: ObservableObject {
     // MARK: - Phase4 (P4-1): Stable Identity (turnId + itemId)
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
+
+    private let chatService: ChatServiceProtocol
+    private let modelRepository: ModelRepositoryProtocol
     
-    /// 应用启动时加载模型列表（从API获取前3个模型）
+    /// 应用启动时加载模型列表（从API获取）
     func loadModels() async {
         await MainActor.run {
             isLoadingModels = true
         }
         
-        let models = await AIModel.availableModels()
+        let models = await modelRepository.fetchModels(filter: .all)
         
         await MainActor.run {
             self.availableModels = models
@@ -47,9 +50,6 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    /// 统一通过 OpenRouter 访问在线模型
-    private let openRouterService = OpenRouterService.shared
-    
     /// 发送给 OpenAI 的最大上下文消息条数（越小越省流量、越快，越大上下文越完整）
     private let maxContextMessages: Int = 20
     
@@ -59,7 +59,10 @@ class ChatViewModel: ObservableObject {
     /// 打字机每个字符之间的间隔（纳秒），数值越小越快
     private let typewriterDelay: UInt64 = 20_000_000 // 20ms
     
-    init() {
+    init(chatService: ChatServiceProtocol = OpenRouterChatService.shared,
+         modelRepository: ModelRepositoryProtocol = ModelRepository.shared) {
+        self.chatService = chatService
+        self.modelRepository = modelRepository
         // 可以添加欢迎消息
         // messages.append(Message(content: "您好！我是AI助手，有什么可以帮助您的吗？", role: .assistant))
     }
@@ -94,7 +97,7 @@ class ChatViewModel: ObservableObject {
         let baseId = makeBaseId(turnId: turnId)
         let userMessageItemId = makeItemId(baseId: baseId, kind: "user_msg", part: "main")
 
-        logPhase4("turn start | baseId=\(baseId) | itemId=\(userMessageItemId) | stream=\(Config.enableStream)")
+        logPhase4("turn start | baseId=\(baseId) | itemId=\(userMessageItemId) | stream=\(AppConfig.enableStream)")
 
         let userMessage = Message(
             content: content,
@@ -152,7 +155,7 @@ class ChatViewModel: ObservableObject {
             let messagesToSend = Array(messages.suffix(maxContextMessages))
             
             // 如果启用 stream 模式
-            if Config.enableStream {
+            if AppConfig.enableStream {
                 // 创建空的助手消息，用于实时更新，标记为 stream 消息
                 let assistantMessageItemId = makeItemId(baseId: baseId, kind: "assistant_stream", part: "main")
                 let assistantMessage = Message(
@@ -171,11 +174,10 @@ class ChatViewModel: ObservableObject {
                 logPhase4("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString)")
                 
                 // 流式接收响应
-                let streamService = OpenRouterStreamService.shared
                 var fullContent = ""
                 var chunkCount = 0
                 let startTime = Date()
-                for try await chunk in streamService.sendMessageStream(
+                for try await chunk in chatService.sendMessageStream(
                     messages: messagesToSend,
                     model: model.apiModel
                 ) {
@@ -207,7 +209,7 @@ class ChatViewModel: ObservableObject {
                 currentTurnId = nil
             } else {
                 // 非 stream 模式：等待完整响应
-                let response = try await openRouterService.sendMessage(
+                let response = try await chatService.sendMessage(
                     messages: messagesToSend,
                     model: model.apiModel
                 )
@@ -269,7 +271,7 @@ class ChatViewModel: ObservableObject {
     }
 
     private func logPhase4(_ message: @autoclosure () -> String) {
-        guard Config.enablePhase4Logs else { return }
+        guard AppConfig.enablePhase4Logs else { return }
         print("[ConversationSSE][Phase4] \(message())")
     }
     

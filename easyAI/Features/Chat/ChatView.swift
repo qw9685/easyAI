@@ -2,7 +2,7 @@
 //  ChatView.swift
 //  EasyAI
 //
-//  Created on 2024
+//  Created by cc on 2026
 //
 
 import SwiftUI
