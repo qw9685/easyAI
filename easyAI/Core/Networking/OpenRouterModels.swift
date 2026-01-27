@@ -2,12 +2,13 @@
 //  OpenRouterModels.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import Foundation
 
-// MARK: - Stream Response Models
+// MARK: - 流式响应模型
 struct OpenRouterStreamResponse: Codable {
     let choices: [StreamChoice]
 
@@ -20,7 +21,7 @@ struct OpenRouterStreamResponse: Codable {
     }
 }
 
-// MARK: - Response Models（OpenRouter Chat）
+// MARK: - 响应模型（OpenRouter 对话）
 struct OpenRouterChatResponse: Codable {
     let choices: [Choice]
 
@@ -33,7 +34,7 @@ struct OpenRouterChatResponse: Codable {
     }
 }
 
-// MARK: - Response Models（OpenRouter Models List）
+// MARK: - 响应模型（OpenRouter 模型列表）
 struct OpenRouterModelsResponse: Codable {
     let data: [OpenRouterModelInfo]
 }
@@ -119,7 +120,7 @@ struct OpenRouterProvider: Codable {
     }
 }
 
-// MARK: - AnyCodable
+// MARK: - AnyCodable 类型
 struct AnyCodable: Codable {
     let value: Any
 
@@ -171,7 +172,7 @@ struct AnyCodable: Codable {
     }
 }
 
-// MARK: - Errors
+// MARK: - 错误
 enum OpenRouterError: LocalizedError {
     case missingAPIKey
     case invalidURL

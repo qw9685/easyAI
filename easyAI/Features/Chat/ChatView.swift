@@ -2,8 +2,9 @@
 //  ChatView.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import SwiftUI
 import PhotosUI
@@ -14,13 +15,13 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var showModelSelector: Bool = false
     @State private var showSettings: Bool = false
+    @State private var showConversations: Bool = false
     @State private var isUserScrolling: Bool = false
     @State private var scrollTask: Task<Void, Never>?
-    @State private var selectedPhoto: PhotosPickerItem?
     @State private var selectedImage: UIImage?
     @State private var selectedImageData: Data?
     @State private var selectedImageMimeType: String?
-        
+    
     var body: some View {
         ZStack {
             // 渐变背景
@@ -67,44 +68,44 @@ struct ChatView: View {
                             }
                             
                             ForEach(viewModel.messages) { message in
-                            MessageBubble(
-                                message: message,
-                                stopToken: viewModel.animationStopToken,
-                                onProgress: {
-                                    // 只有在用户没有手动滚动时才自动滚动到底部
-                                    guard !isUserScrolling else { return }
-                                    
-                                    // 实时滚动到底部，跟随打字机高度变化
-                                    // 取消之前的滚动任务，确保只执行最新的滚动
-                                    scrollTask?.cancel()
-                                    
-                                    // 使用很短的延迟（10ms）来批量处理频繁的更新，但保持实时性
-                                    scrollTask = Task {
-                                        try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
-                                        guard !Task.isCancelled else { return }
+                                MessageBubble(
+                                    message: message,
+                                    stopToken: viewModel.animationStopToken,
+                                    onProgress: {
+                                        // 只有在用户没有手动滚动时才自动滚动到底部
+                                        guard !isUserScrolling else { return }
                                         
-                                        await MainActor.run {
-                                            guard !isUserScrolling else { return }
-                                            // 使用非常短的线性动画，确保平滑但实时跟随打字机高度
-                                            withAnimation(.linear(duration: 0.05)) {
+                                        // 实时滚动到底部，跟随打字机高度变化
+                                        // 取消之前的滚动任务，确保只执行最新的滚动
+                                        scrollTask?.cancel()
+                                        
+                                        // 使用很短的延迟（10ms）来批量处理频繁的更新，但保持实时性
+                                        scrollTask = Task {
+                                            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+                                            guard !Task.isCancelled else { return }
+                                            
+                                            await MainActor.run {
+                                                guard !isUserScrolling else { return }
+                                                // 避免在视图更新期直接触发 scrollTo
+                                                withAnimation(.linear(duration: 0.05)) {
+                                                    proxy.scrollTo("bottomSpacer", anchor: .bottom)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onContentUpdate: {
+                                        // 助手气泡打字机动画完成后，允许再次发送
+                                        if message.role == .assistant {
+                                            viewModel.isTypingAnimating = false
+                                        }
+                                        // 动画完成后，如果用户没有在滚动，也滚动到底部
+                                        if !isUserScrolling {
+                                            withAnimation(.easeOut(duration: 0.3)) {
                                                 proxy.scrollTo("bottomSpacer", anchor: .bottom)
                                             }
                                         }
                                     }
-                                },
-                                onContentUpdate: {
-                                    // 助手气泡打字机动画完成后，允许再次发送
-                                    if message.role == .assistant {
-                                        viewModel.isTypingAnimating = false
-                                    }
-                                    // 动画完成后，如果用户没有在滚动，也滚动到底部
-                                    if !isUserScrolling {
-                                        withAnimation(.easeOut(duration: 0.3)) {
-                                            proxy.scrollTo("bottomSpacer", anchor: .bottom)
-                                        }
-                                    }
-                                }
-                            )
+                                )
                                 .id(message.id)
                                 .transition(.asymmetric(
                                     insertion: .scale.combined(with: .opacity),
@@ -153,6 +154,13 @@ struct ChatView: View {
                             }
                         }
                     }
+                    .onChange(of: viewModel.currentConversationId) { _ in
+                        guard !isUserScrolling else { return }
+                        // 切换会话后滚动到底部
+                        DispatchQueue.main.async {
+                            proxy.scrollTo("bottomSpacer", anchor: .bottom)
+                        }
+                    }
                     .onChange(of: viewModel.isLoading) { _ in
                         if viewModel.isLoading && !isUserScrolling {
                             // loading 开始时，如果用户没有在滚动，自动滚动到底部
@@ -170,16 +178,7 @@ struct ChatView: View {
                     
                     HStack(spacing: 12) {
                         // 图片选择按钮
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            let iconName = selectedImage != nil ? "photo.fill" : "photo"
-                            let iconColor = selectedImage != nil ? Color.blue : Color.secondary
-                            Image(systemName: iconName)
-                                .font(.system(size: 24))
-                                .foregroundColor(iconColor)
-                        }
-                        .onChange(of: selectedPhoto) { newItem in
-                            handlePhotoSelection(newItem)
-                        }
+                        photoPickerButton
                         
                         // 输入框
                         HStack(spacing: 8) {
@@ -188,14 +187,7 @@ struct ChatView: View {
                                 imagePreviewView(selectedImage)
                             }
                             
-                            TextField("输入消息...", text: $inputText, axis: .vertical)
-                                .textFieldStyle(.plain)
-                                .font(.body)
-                                .lineLimit(1...5)
-                                .focused($isInputFocused)
-                                .onSubmit {
-                                    sendMessage()
-                                }
+                            inputField
                             
                             if shouldShowClearButton {
                                 clearTextButton
@@ -224,30 +216,12 @@ struct ChatView: View {
         .navigationTitle("EasyAI")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItemGroup(placement: .navigationBarLeading) {
                 Button(action: {
-                    showModelSelector = true
+                    showConversations = true
                 }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 14, weight: .medium))
-                        Text(viewModel.selectedModel?.name ?? "加载中...")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .purple],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.blue.opacity(0.1))
-                    )
+                    Image(systemName: "list.bullet")
+                        .foregroundColor(.primary)
                 }
             }
             
@@ -273,6 +247,10 @@ struct ChatView: View {
             SettingsView()
                 .environmentObject(viewModel)
         }
+        .sheet(isPresented: $showConversations) {
+            ConversationListView()
+                .environmentObject(viewModel)
+        }
         .onAppear {
             // 确保模型列表已加载
             if viewModel.availableModels.isEmpty {
@@ -283,7 +261,7 @@ struct ChatView: View {
         }
     }
     
-    // MARK: - Helper Views
+    // MARK: - 辅助视图
     
     @ViewBuilder
     private func imagePreviewView(_ image: UIImage) -> some View {
@@ -321,13 +299,12 @@ struct ChatView: View {
         selectedImage = nil
         selectedImageData = nil
         selectedImageMimeType = nil
-        selectedPhoto = nil
     }
     
     private var sendButton: some View {
         let gradientColors = isSendDisabled
-            ? [Color.gray.opacity(0.3), Color.gray.opacity(0.3)]
-            : [Color.blue, Color.purple]
+        ? [Color.gray.opacity(0.3), Color.gray.opacity(0.3)]
+        : [Color.blue, Color.purple]
         
         return Button(action: sendMessage) {
             Image(systemName: "arrow.up.circle.fill")
@@ -372,30 +349,83 @@ struct ChatView: View {
         selectedImage = nil
         selectedImageData = nil
         selectedImageMimeType = nil
-        selectedPhoto = nil
         isInputFocused = false
     }
     
-    private func handlePhotoSelection(_ newItem: PhotosPickerItem?) {
-        Task {
-            guard let newItem = newItem else { return }
-            
-            guard let data = try? await newItem.loadTransferable(type: Data.self) else {
-                return
-            }
-            
-            await MainActor.run {
-                selectedImageData = data
-                processImageData(data)
+    private var photoPickerButton: some View {
+        Group {
+            if #available(iOS 16.0, *) {
+                PhotosPickerButton(
+                    selectedImage: $selectedImage,
+                    selectedImageData: $selectedImageData,
+                    selectedImageMimeType: $selectedImageMimeType
+                )
+            } else {
+                Button(action: {}) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 24))
+                        .foregroundColor(.secondary)
+                }
+                .disabled(true)
             }
         }
     }
     
-    private func processImageData(_ data: Data) {
-        guard let image = UIImage(data: data) else { return }
-        
-        selectedImage = image
-        selectedImageMimeType = detectImageMimeType(data)
+    @ViewBuilder
+    private var inputField: some View {
+        if #available(iOS 16.0, *) {
+            TextField("输入消息...", text: $inputText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .lineLimit(1...5)
+                .focused($isInputFocused)
+                .onSubmit {
+                    sendMessage()
+                }
+        } else {
+            ZStack(alignment: .leading) {
+                if inputText.isEmpty {
+                    Text("输入消息...")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+                TextEditor(text: $inputText)
+                    .font(.body)
+                    .frame(minHeight: 20, maxHeight: 120)
+                    .focused($isInputFocused)
+            }
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+private struct PhotosPickerButton: View {
+    @Binding var selectedImage: UIImage?
+    @Binding var selectedImageData: Data?
+    @Binding var selectedImageMimeType: String?
+    @State private var selectedPhoto: PhotosPickerItem?
+    
+    var body: some View {
+        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+            let iconName = selectedImage != nil ? "photo.fill" : "photo"
+            let iconColor = selectedImage != nil ? Color.blue : Color.secondary
+            Image(systemName: iconName)
+                .font(.system(size: 24))
+                .foregroundColor(iconColor)
+        }
+        .onChange(of: selectedPhoto) { newItem in
+            Task {
+                guard let newItem = newItem else { return }
+                guard let data = try? await newItem.loadTransferable(type: Data.self) else {
+                    return
+                }
+                await MainActor.run {
+                    selectedImageData = data
+                    selectedImage = UIImage(data: data)
+                    selectedImageMimeType = detectImageMimeType(data)
+                }
+            }
+        }
     }
     
     private func detectImageMimeType(_ data: Data) -> String {
@@ -580,7 +610,7 @@ struct MessageBubble: View {
                         ChunkTypewriterTextView(
                             text: message.content,
                             chunkSize: 20,          // 每次增加大约 20 个字符
-                            chunkDelay: 0.08,       // 块之间的停顿
+                            chunkDelay: 0.04,       // 块之间的停顿
                             onProgress: onProgress, // 打字机进度回调，用于实时滚动
                             onFinish: {
                                 // 打字机动画完成后显示时间戳
@@ -666,7 +696,7 @@ struct RoundedCorner: Shape {
     }
 }
 
-// MARK: - Media Placeholder View
+// MARK: - 媒体占位视图
 
 /// 非图片媒体类型的占位符视图
 struct MediaPlaceholderView: View {

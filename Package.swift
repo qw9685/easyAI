@@ -13,10 +13,12 @@ let package = Package(
             name: "EasyAI",
             targets: ["EasyAI"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/Tencent/wcdb.git", from: "1.1.0")
+    ],
     targets: [
         .target(
             name: "EasyAI",
-            dependencies: []),
+            dependencies: ["WCDBSwift"]),
     ]
 )
-

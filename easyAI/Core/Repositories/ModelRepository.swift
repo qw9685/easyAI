@@ -2,8 +2,9 @@
 //  ModelRepository.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import Foundation
 
@@ -13,25 +14,42 @@ enum ModelFilter {
 }
 
 protocol ModelRepositoryProtocol {
-    func fetchModels(filter: ModelFilter) async -> [AIModel]
+    func fetchModels(filter: ModelFilter, forceRefresh: Bool) async -> [AIModel]
 }
 
 final class ModelRepository: ModelRepositoryProtocol {
     static let shared = ModelRepository()
 
     private let service: ChatServiceProtocol
+    private let cacheRepository: ModelCacheRepository
+    private let cacheTTL: TimeInterval = 60 * 60 * 12
 
-    init(service: ChatServiceProtocol = OpenRouterChatService.shared) {
+    init(service: ChatServiceProtocol = OpenRouterChatService.shared,
+         cacheRepository: ModelCacheRepository = ModelCacheRepository.shared) {
         self.service = service
+        self.cacheRepository = cacheRepository
     }
 
-    func fetchModels(filter: ModelFilter) async -> [AIModel] {
+    func fetchModels(filter: ModelFilter, forceRefresh: Bool = false) async -> [AIModel] {
+        if !forceRefresh, let cached = cacheRepository.readCache(),
+           Date().timeIntervalSince(cached.updatedAt) < cacheTTL {
+            let filtered = applyFilter(cached.models, filter: filter)
+            return filtered.map { mapToAIModel($0) }
+        }
+
         do {
             let models = try await service.fetchModels()
+            if !models.isEmpty {
+                cacheRepository.writeCache(models: models)
+            }
             let filtered = applyFilter(models, filter: filter)
             return filtered.map { mapToAIModel($0) }
         } catch {
             print("[ModelRepository] ⚠️ Failed to fetch models: \(error)")
+            if let cached = cacheRepository.readCache() {
+                let filtered = applyFilter(cached.models, filter: filter)
+                return filtered.map { mapToAIModel($0) }
+            }
             return []
         }
     }
@@ -63,7 +81,10 @@ final class ModelRepository: ModelRepositoryProtocol {
             apiModel: modelInfo.id,
             supportsMultimodal: supportsMultimodal,
             inputModalities: inputModalities,
-            outputModalities: outputModalities
+            outputModalities: outputModalities,
+            contextLength: modelInfo.contextLength,
+            pricing: ModelPricing(prompt: modelInfo.pricing?.prompt,
+                                  completion: modelInfo.pricing?.completion)
         )
     }
 }

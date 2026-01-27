@@ -2,10 +2,12 @@
 //  ModelSelectorView.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
 
+
 import SwiftUI
+import Foundation
 
 struct ModelSelectorView: View {
     @Binding var selectedModel: AIModel?
@@ -14,6 +16,12 @@ struct ModelSelectorView: View {
     @State private var searchText: String = ""
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
+    @State private var selectedInputFilters: Set<String> = []
+    @State private var selectedOutputFilters: Set<String> = []
+    @State private var isFilterExpanded: Bool = false
+    @State private var favoriteModelIds: Set<String> = []
+    @State private var isFreeOnly: Bool = false
+    @State private var isFavoritesOnly: Bool = false
 
     private let modelRepository: ModelRepositoryProtocol = ModelRepository.shared
     
@@ -25,13 +33,91 @@ struct ModelSelectorView: View {
     
     var filteredModels: [AIModel] {
         if searchText.isEmpty {
-            return viewModel.availableModels
+            return applyFilters(to: viewModel.availableModels)
         } else {
-            return viewModel.availableModels.filter { model in
-                model.name.localizedCaseInsensitiveContains(searchText) ||
-                model.description.localizedCaseInsensitiveContains(searchText)
+            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if query.isEmpty {
+                return applyFilters(to: viewModel.availableModels)
             }
+            let searched = viewModel.availableModels.filter { model in
+                let inputTokens = formatModalities(model.inputModalities)
+                let outputTokens = formatModalities(model.outputModalities)
+                return model.name.localizedCaseInsensitiveContains(query) ||
+                model.description.localizedCaseInsensitiveContains(query) ||
+                inputTokens.localizedCaseInsensitiveContains(query) ||
+                outputTokens.localizedCaseInsensitiveContains(query)
+            }
+            return applyFilters(to: searched)
         }
+    }
+
+    /// 格式化输入/输出类型显示
+    private func formatModalities(_ modalities: [String]) -> String {
+        let localized: [String: String] = [
+            "text": "文本",
+            "image": "图片",
+            "file": "文件",
+            "audio": "音频",
+            "video": "视频",
+            "embeddings": "向量"
+        ]
+        return modalities.map { localized[$0.lowercased()] ?? $0.capitalized }.joined(separator: ", ")
+    }
+
+    private func applyFilters(to models: [AIModel]) -> [AIModel] {
+        let inputFilters = selectedInputFilters
+        let outputFilters = selectedOutputFilters
+
+        let favorites = favoriteModelIds
+        let freeOnly = isFreeOnly
+        let favoritesOnly = isFavoritesOnly
+        let filtered = models.filter { model in
+            if !inputFilters.isEmpty {
+                let inputs = Set(model.inputModalities.map { $0.lowercased() })
+                if inputFilters.isDisjoint(with: inputs) {
+                    return false
+                }
+            }
+            if !outputFilters.isEmpty {
+                let outputs = Set(model.outputModalities.map { $0.lowercased() })
+                if outputFilters.isDisjoint(with: outputs) {
+                    return false
+                }
+            }
+            if freeOnly && !model.isFree {
+                return false
+            }
+            if favoritesOnly && !favorites.contains(model.id) {
+                return false
+            }
+            return true
+        }
+        return filtered.sorted { lhs, rhs in
+            let lhsFavorite = favorites.contains(lhs.id)
+            let rhsFavorite = favorites.contains(rhs.id)
+            if lhsFavorite != rhsFavorite {
+                return lhsFavorite && !rhsFavorite
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private var inputFilterOptions: [(key: String, label: String)] {
+        [
+            ("text", "文本"),
+            ("image", "图片"),
+            ("file", "文件"),
+            ("audio", "音频"),
+            ("video", "视频")
+        ]
+    }
+
+    private var outputFilterOptions: [(key: String, label: String)] {
+        [
+            ("text", "文本"),
+            ("image", "图片"),
+            ("embeddings", "向量")
+        ]
     }
     
     var body: some View {
@@ -52,6 +138,7 @@ struct ModelSelectorView: View {
                 }
             }
             .onAppear {
+                favoriteModelIds = Set(AppConfig.favoriteModelIds)
                 if !hasFetchedData {
                     fetchModels()
                 }
@@ -59,7 +146,7 @@ struct ModelSelectorView: View {
         }
     }
     
-    // MARK: - Main View Components
+    // MARK: - 主要视图组件
     
     private var backgroundGradient: some View {
         LinearGradient(
@@ -77,6 +164,7 @@ struct ModelSelectorView: View {
         ScrollView {
             LazyVStack(spacing: 16) {
                 searchBar
+                filterPanel
                 loadingView
                 errorView
                 modelList
@@ -98,6 +186,106 @@ struct ModelSelectorView: View {
         .background(searchBarBackground)
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    private var filterPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("筛选")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button(isFilterExpanded ? "收起" : "展开") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isFilterExpanded.toggle()
+                    }
+                }
+                .font(.caption)
+            }
+
+            if isFilterExpanded {
+                filterSection(title: "输入", options: inputFilterOptions, selection: $selectedInputFilters)
+                filterSection(title: "输出", options: outputFilterOptions, selection: $selectedOutputFilters)
+                filterToggleRow
+
+                if !selectedInputFilters.isEmpty || !selectedOutputFilters.isEmpty || isFreeOnly || isFavoritesOnly {
+                    Button("清除筛选") {
+                        selectedInputFilters.removeAll()
+                        selectedOutputFilters.removeAll()
+                        isFreeOnly = false
+                        isFavoritesOnly = false
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var filterToggleRow: some View {
+        HStack(spacing: 10) {
+            filterChip(title: "仅免费", isSelected: isFreeOnly) {
+                isFreeOnly.toggle()
+            }
+            filterChip(title: "仅收藏", isSelected: isFavoritesOnly) {
+                isFavoritesOnly.toggle()
+            }
+            Spacer()
+        }
+    }
+
+    private func filterChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(isSelected ? .white : .primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? Color.blue : Color(.systemGray6))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func filterSection(title: String, options: [(key: String, label: String)], selection: Binding<Set<String>>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            let columns = [GridItem(.adaptive(minimum: 80), spacing: 8)]
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                ForEach(options, id: \.key) { option in
+                    let isSelected = selection.wrappedValue.contains(option.key)
+                    Button {
+                        if isSelected {
+                            selection.wrappedValue.remove(option.key)
+                        } else {
+                            selection.wrappedValue.insert(option.key)
+                        }
+                    } label: {
+                        Text(option.label)
+                            .font(.caption)
+                            .foregroundColor(isSelected ? .white : .primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(isSelected ? Color.blue : Color(.systemGray6))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
     
     private var searchBarBackground: some View {
@@ -147,7 +335,11 @@ struct ModelSelectorView: View {
         ForEach(filteredModels) { model in
             ModelRow(
                 model: model,
-                isSelected: isModelSelected(model)
+                isSelected: isModelSelected(model),
+                isFavorite: favoriteModelIds.contains(model.id),
+                onToggleFavorite: {
+                    toggleFavorite(model)
+                }
             ) {
                 selectModel(model)
             }
@@ -196,7 +388,7 @@ struct ModelSelectorView: View {
         errorMessage = nil
         
         Task {
-            let models = await modelRepository.fetchModels(filter: .all)
+            let models = await modelRepository.fetchModels(filter: .all, forceRefresh: forceRefresh)
 
             await MainActor.run {
                 if models.isEmpty && !hasFetchedData {
@@ -211,16 +403,23 @@ struct ModelSelectorView: View {
             }
         }
     }
+
+    private func toggleFavorite(_ model: AIModel) {
+        if favoriteModelIds.contains(model.id) {
+            favoriteModelIds.remove(model.id)
+        } else {
+            favoriteModelIds.insert(model.id)
+        }
+        AppConfig.favoriteModelIds = Array(favoriteModelIds)
+    }
 }
 
 struct ModelRow: View {
     let model: AIModel
     let isSelected: Bool
+    let isFavorite: Bool
+    let onToggleFavorite: () -> Void
     let action: () -> Void
-    
-    var modelIcon: String {
-        return "cpu"
-    }
     
     var modelColor: Color {
         return .gray
@@ -238,7 +437,7 @@ struct ModelRow: View {
         ]
         return modalities.map { localized[$0.lowercased()] ?? $0.capitalized }.joined(separator: ", ")
     }
-    
+
     var body: some View {
         Button(action: action) {
             contentView
@@ -250,6 +449,7 @@ struct ModelRow: View {
         HStack(alignment: .center, spacing: 16) {
             modelIconView
             modelInfoView
+            favoriteButton
             selectionIndicator
         }
         .padding(16)
@@ -263,36 +463,19 @@ struct ModelRow: View {
         isSelected ? 1.02 : 1.0
     }
     
-    // MARK: - Subviews
+    // MARK: - 子视图
     
     private var modelIconView: some View {
         ZStack {
-            Circle()
-                .fill(iconGradient)
-                .frame(width: 50, height: 50)
-            
-            Image(systemName: modelIcon)
-                .font(.system(size: 22, weight: .medium))
-                .foregroundColor(isSelected ? .white : modelColor)
+            ModelAvatarView(name: model.name, provider: model.provider, size: 50)
         }
-        .frame(width: 50)
-    }
-    
-    private var iconGradient: LinearGradient {
-        let colors = isSelected 
-            ? [modelColor, modelColor.opacity(0.7)]
-            : [Color.gray.opacity(0.2), Color.gray.opacity(0.1)]
-        return LinearGradient(
-            colors: colors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
     
     private var modelInfoView: some View {
         VStack(alignment: .leading, spacing: 6) {
             modelNameAndModalities
             modelDescription
+            modelMetaView
         }
         .layoutPriority(1)
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
@@ -311,7 +494,7 @@ struct ModelRow: View {
     
     @ViewBuilder
     private var modalitiesView: some View {
-        HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             if !model.inputModalities.isEmpty {
                 inputModalityBadge
             }
@@ -358,6 +541,39 @@ struct ModelRow: View {
             .foregroundColor(.secondary)
             .lineLimit(2)
     }
+
+    private var modelMetaView: some View {
+        HStack(spacing: 12) {
+            Text(priceText)
+            Text(contextText)
+        }
+        .font(.caption2)
+        .foregroundColor(.secondary)
+    }
+
+    private var priceText: String {
+        if model.isFree {
+            return "免费"
+        }
+        guard let pricing = model.pricing else {
+            return "价格未知"
+        }
+        let prompt = pricing.prompt ?? "?"
+        let completion = pricing.completion ?? "?"
+        return "输入 $\(prompt) / 输出 $\(completion)"
+    }
+
+    private var contextText: String {
+        guard let contextLength = model.contextLength, contextLength > 0 else {
+            return "上下文未知"
+        }
+        if contextLength >= 1000 {
+            let kilo = Double(contextLength) / 1000.0
+            let formatted = String(format: "%.0fK", kilo)
+            return "上下文 \(formatted)"
+        }
+        return "上下文 \(contextLength)"
+    }
     
     private var selectionIndicator: some View {
         HStack(spacing: 0) {
@@ -374,6 +590,15 @@ struct ModelRow: View {
         .frame(width: 18, height: 18)
         .padding(.trailing, 16)
         .layoutPriority(0)
+    }
+
+    private var favoriteButton: some View {
+        Button(action: onToggleFavorite) {
+            Image(systemName: isFavorite ? "star.fill" : "star")
+                .font(.system(size: 16))
+                .foregroundColor(isFavorite ? .yellow : .secondary)
+        }
+        .buttonStyle(.plain)
     }
     
     private var checkmarkGradient: LinearGradient {

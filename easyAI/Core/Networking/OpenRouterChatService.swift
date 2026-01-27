@@ -2,8 +2,9 @@
 //  OpenRouterChatService.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import Foundation
 
@@ -113,7 +114,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
         return modelsResponse.data
     }
 
-    // MARK: - Helpers
+    // MARK: - 辅助方法
     private func buildRequest(messages: [Message], model: String, stream: Bool) throws -> URLRequest {
         let apiKey = AppConfig.apiKey
         guard !apiKey.isEmpty && apiKey != "YOUR_OPENAI_API_KEY_HERE" else {
@@ -210,7 +211,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
         return httpResponse
     }
 
-    // MARK: - Mock Data
+    // MARK: - 模拟数据
     private func mockResponse(messages: [Message], model: String) async throws -> String {
         try await Task.sleep(nanoseconds: 500_000_000)
 

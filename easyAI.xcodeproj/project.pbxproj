@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		429122AA2F237CEA00F9062D /* WCDBSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 429122A92F237CEA00F9062D /* WCDBSwift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		421B2E782EE72E6400F921B7 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				429122AA2F237CEA00F9062D /* WCDBSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 				421B2E6C2EE72E6300F921B7 /* easyAI */,
 				421B2E7A2EE72E6400F921B7 /* easyAITests */,
 				421B2E842EE72E6400F921B7 /* easyAIUITests */,
+				429122A82F237CEA00F9062D /* Frameworks */,
 				421B2E6B2EE72E6300F921B7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +96,13 @@
 				421B2E812EE72E6400F921B7 /* easyAIUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		429122A82F237CEA00F9062D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +125,7 @@
 			);
 			name = easyAI;
 			packageProductDependencies = (
+				429122A92F237CEA00F9062D /* WCDBSwift */,
 			);
 			productName = easyAI;
 			productReference = 421B2E6A2EE72E6300F921B7 /* easyAI.app */;
@@ -195,6 +209,10 @@
 			);
 			mainGroup = 421B2E612EE72E6300F921B7;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4291225B2F237C7400F9062D /* XCRemoteSwiftPackageReference "wcdb" */,
+				42D0A9352F289BB900BDAC62 /* XCRemoteSwiftPackageReference "Down" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 421B2E6B2EE72E6300F921B7 /* Products */;
 			projectDirPath = "";
@@ -580,6 +598,33 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4291225B2F237C7400F9062D /* XCRemoteSwiftPackageReference "wcdb" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Tencent/wcdb.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+		42D0A9352F289BB900BDAC62 /* XCRemoteSwiftPackageReference "Down" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/johnxnguyen/Down.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		429122A92F237CEA00F9062D /* WCDBSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4291225B2F237C7400F9062D /* XCRemoteSwiftPackageReference "wcdb" */;
+			productName = WCDBSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 421B2E622EE72E6300F921B7 /* Project object */;
 }

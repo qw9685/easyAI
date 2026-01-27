@@ -2,8 +2,9 @@
 //  SettingsView.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var showDeleteConfirmation: Bool = false
+    @State private var showModelSelector: Bool = false
     @State private var maxTokensText: String = ""
     @State private var apiKeyText: String = ""
     
@@ -26,6 +28,23 @@ struct SettingsView: View {
                     Toggle("启用流式响应", isOn: $configManager.enableStream)
 
                     Toggle("启用 Phase4 日志（turnId/itemId）", isOn: $configManager.enablePhase4Logs)
+
+                    Button {
+                        showModelSelector = true
+                    } label: {
+                        HStack {
+                            Text("选择模型")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            HStack(spacing: 6) {
+                                ModelAvatarView(name: fullModelName, provider: modelProvider, size: 20)
+                                Text(fullModelName)
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                        }
+                    }
 
                     HStack {
                         Text("OpenRouter API Key")
@@ -102,6 +121,13 @@ struct SettingsView: View {
                     apiKeyText = SecretsStore.shared.apiKey
                 }
             }
+            .sheet(isPresented: $showModelSelector) {
+                ModelSelectorView(selectedModel: Binding(
+                    get: { viewModel.selectedModel },
+                    set: { viewModel.selectedModel = $0 }
+                ))
+                .environmentObject(viewModel)
+            }
             .alert("确认删除", isPresented: $showDeleteConfirmation) {
                 Button("取消", role: .cancel) { }
                 Button("删除", role: .destructive) {
@@ -112,6 +138,18 @@ struct SettingsView: View {
             }
         }
     }
+
+    private var fullModelName: String {
+        guard let name = viewModel.selectedModel?.name, !name.isEmpty else {
+            return "加载中..."
+        }
+        return name
+    }
+
+    private var modelProvider: ModelProvider {
+        viewModel.selectedModel?.provider ?? .openrouter
+    }
+
 }
 
 #Preview {

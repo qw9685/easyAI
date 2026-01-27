@@ -2,8 +2,9 @@
 //  MediaContent.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import Foundation
 import UIKit
@@ -68,7 +69,7 @@ struct MediaContent: Identifiable, Codable {
     }
 }
 
-// MARK: - Media Content Helpers
+// MARK: - 媒体内容辅助
 
 extension MediaContent {
     /// 从 UIImage 创建图片媒体内容

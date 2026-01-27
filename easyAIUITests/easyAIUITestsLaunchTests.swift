@@ -2,7 +2,7 @@
 //  easyAIUITestsLaunchTests.swift
 //  easyAIUITests
 //
-//  Created by cc on 2025/12/9.
+//  创建于 2025/12/9
 //
 
 import XCTest
@@ -22,8 +22,8 @@ final class easyAIUITestsLaunchTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
+        // 在这里编写应用启动后、截图之前需要执行的步骤，
+        // 例如登录测试账号或在应用中导航到指定页面。
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

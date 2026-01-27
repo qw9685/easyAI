@@ -5,6 +5,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// 按块（句子/固定长度）逐步显示的打字机，避免频繁重排导致行尾跳行。
 struct ChunkTypewriterTextView: View {
@@ -22,13 +23,7 @@ struct ChunkTypewriterTextView: View {
     @State private var animationTask: Task<Void, Never>?
     
     var body: some View {
-        // 直接使用可见文本，确保高度能够实时更新
-        // fixedSize 允许高度根据内容增长
-        Text(String(text.prefix(visibleLength)))
-            .font(.body)
-            .foregroundColor(.primary)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
+        UILabelTextView(text: String(text.prefix(visibleLength)))
         .onAppear {
             // 只在首次出现时开始动画
             if visibleLength == 0 && animationTask == nil {
@@ -89,5 +84,30 @@ struct ChunkTypewriterTextView: View {
         }
         
         await MainActor.run { onFinish?() }
+    }
+}
+
+private struct UILabelTextView: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.dataDetectorTypes = [.link, .phoneNumber, .address]
+        textView.isScrollEnabled = false
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.textColor = UIColor.label
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        if uiView.text != text {
+            uiView.text = text
+            uiView.invalidateIntrinsicContentSize()
+        }
     }
 }

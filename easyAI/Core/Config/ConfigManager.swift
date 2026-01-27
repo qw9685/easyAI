@@ -2,8 +2,9 @@
 //  ConfigManager.swift
 //  EasyAI
 //
-//  Created by cc on 2026
+//  创建于 2026
 //
+
 
 import Foundation
 import SwiftUI
@@ -13,13 +14,15 @@ import Combine
 class ConfigManager: ObservableObject {
     static let shared = ConfigManager()
     
-    // MARK: - UserDefaults Keys
+    // MARK: - UserDefaults 键
     private let useMockDataKey = "Config.useMockData"
     private let enableStreamKey = "Config.enableStream"
     private let maxTokensKey = "Config.maxTokens"
     private let enablePhase4LogsKey = "Config.enablePhase4Logs"
+    private let selectedModelIdKey = "Config.selectedModelId"
+    private let favoriteModelIdsKey = "Config.favoriteModelIds"
     
-    // MARK: - Published Properties
+    // MARK: - 发布属性
     @Published var useMockData: Bool {
         didSet {
             UserDefaults.standard.set(useMockData, forKey: useMockDataKey)
@@ -43,6 +46,22 @@ class ConfigManager: ObservableObject {
             UserDefaults.standard.set(enablePhase4Logs, forKey: enablePhase4LogsKey)
         }
     }
+
+    @Published var selectedModelId: String? {
+        didSet {
+            if let selectedModelId {
+                UserDefaults.standard.set(selectedModelId, forKey: selectedModelIdKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: selectedModelIdKey)
+            }
+        }
+    }
+
+    @Published var favoriteModelIds: [String] {
+        didSet {
+            UserDefaults.standard.set(favoriteModelIds, forKey: favoriteModelIdsKey)
+        }
+    }
     
     private init() {
         // 从 UserDefaults 读取配置，如果没有则使用默认值
@@ -55,10 +74,12 @@ class ConfigManager: ObservableObject {
         let defaultEnablePhase4Logs = false
 #endif
         self.enablePhase4Logs = UserDefaults.standard.object(forKey: enablePhase4LogsKey) as? Bool ?? defaultEnablePhase4Logs
+        self.selectedModelId = UserDefaults.standard.string(forKey: selectedModelIdKey)
+        self.favoriteModelIds = UserDefaults.standard.stringArray(forKey: favoriteModelIdsKey) ?? []
     }
 }
 
-// MARK: - AppConfig Extension
+// MARK: - AppConfig 扩展
 extension AppConfig {
     /// 使用假数据模式（从 ConfigManager 读取）
     static var useMockData: Bool {
@@ -82,5 +103,17 @@ extension AppConfig {
     static var enablePhase4Logs: Bool {
         get { ConfigManager.shared.enablePhase4Logs }
         set { ConfigManager.shared.enablePhase4Logs = newValue }
+    }
+
+    /// 上次选择的模型 ID（从 ConfigManager 读取）
+    static var selectedModelId: String? {
+        get { ConfigManager.shared.selectedModelId }
+        set { ConfigManager.shared.selectedModelId = newValue }
+    }
+
+    /// 收藏的模型 ID（从 ConfigManager 读取）
+    static var favoriteModelIds: [String] {
+        get { ConfigManager.shared.favoriteModelIds }
+        set { ConfigManager.shared.favoriteModelIds = newValue }
     }
 }

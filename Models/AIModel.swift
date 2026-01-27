@@ -2,10 +2,15 @@
 //  AIModel.swift
 //  EasyAI
 //
-//  Created on 2024
+//  创建于 2024
 //
 
 import Foundation
+
+struct ModelPricing: Codable, Hashable {
+    let prompt: String?
+    let completion: String?
+}
 
 struct AIModel: Identifiable, Codable, Hashable {
     let id: String
@@ -14,6 +19,10 @@ struct AIModel: Identifiable, Codable, Hashable {
     let provider: ModelProvider
     /// 对应服务商真实的模型 ID（有些平台会带前缀，如 openrouter 的 `deepseek/deepseek-chat`）
     let apiModel: String
+    /// 上下文长度
+    let contextLength: Int? = nil
+    /// 价格信息
+    let pricing: ModelPricing? = nil
     
     static let availableModels: [AIModel] = [
         AIModel(
@@ -53,8 +62,17 @@ struct AIModel: Identifiable, Codable, Hashable {
     }()
 }
 
+extension AIModel {
+    /// 是否免费模型
+    var isFree: Bool {
+        guard let pricing else { return true }
+        let promptPrice = Double(pricing.prompt ?? "0") ?? 0
+        let completionPrice = Double(pricing.completion ?? "0") ?? 0
+        return promptPrice == 0 && completionPrice == 0
+    }
+}
+
 enum ModelProvider: String, Codable, Hashable {
     /// OpenRouter（聚合多个模型，其中不少有赞助/免费用量）
     case openrouter
 }
-
