@@ -29,6 +29,13 @@ struct SettingsView: View {
 
                     Toggle("启用 Phase4 日志（turnId/itemId）", isOn: $configManager.enablePhase4Logs)
 
+                    Picker("上下文策略", selection: $configManager.contextStrategy) {
+                        ForEach(MessageContextStrategy.allCases) { strategy in
+                            Text(strategy.title).tag(strategy)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
                     Button {
                         showModelSelector = true
                     } label: {

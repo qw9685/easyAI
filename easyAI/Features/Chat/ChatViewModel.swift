@@ -9,10 +9,20 @@
 import Foundation
 import SwiftUI
 import Combine
+import RxSwift
+import RxCocoa
 
 class ChatViewModel: ObservableObject {
-    @Published var messages: [Message] = []
-    @Published var isLoading: Bool = false
+    @Published var messages: [Message] = [] {
+        didSet {
+            messagesRelay.accept(messages)
+        }
+    }
+    @Published var isLoading: Bool = false {
+        didSet {
+            isLoadingRelay.accept(isLoading)
+        }
+    }
     @Published var errorMessage: String?
     @Published var selectedModel: AIModel? {
         didSet {
@@ -20,9 +30,11 @@ class ChatViewModel: ObservableObject {
         }
     }
     /// 当前是否有助手回复的打字机动画在进行中（用于禁用再次发送）
-    @Published var isTypingAnimating: Bool = false
-    /// 是否启用打字机效果
-    @Published var isTypewriterEnabled: Bool = true
+    @Published var isTypingAnimating: Bool = false {
+        didSet {
+            isTypingAnimatingRelay.accept(isTypingAnimating)
+        }
+    }
     /// 用于停止打字机动画的 token
     @Published var animationStopToken: UUID = UUID()
     /// 可用的模型列表（完全从API获取）
@@ -30,16 +42,25 @@ class ChatViewModel: ObservableObject {
     /// 模型是否正在加载
     @Published var isLoadingModels: Bool = false
     @Published var conversations: [ConversationRecord] = []
-
-    // MARK: - Phase4 (P4-1): Stable Identity (turnId + itemId)
+    
+    let messagesRelay = BehaviorRelay<[Message]>(value: [])
+    let isLoadingRelay = BehaviorRelay<Bool>(value: false)
+    let currentConversationIdRelay = BehaviorRelay<String?>(value: nil)
+    let isTypingAnimatingRelay = BehaviorRelay<Bool>(value: false)
+    
+    
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
-
+    
     private let chatService: ChatServiceProtocol
     private let modelRepository: ModelRepositoryProtocol
     private let conversationRepository: ConversationRepository
     private let messageRepository: MessageRepository
-    @Published var currentConversationId: String?
+    @Published var currentConversationId: String? {
+        didSet {
+            currentConversationIdRelay.accept(currentConversationId)
+        }
+    }
     
     /// 应用启动时加载模型列表（从API获取）
     func loadModels() async {
@@ -67,8 +88,6 @@ class ChatViewModel: ObservableObject {
     /// 本地保留的最大消息条数，用于避免长时间对话导致内存占用过大
     private let maxStoredMessages: Int = 200
     
-    /// 打字机每个字符之间的间隔（纳秒），数值越小越快
-    private let typewriterDelay: UInt64 = 20_000_000 // 20ms
     
     init(chatService: ChatServiceProtocol = OpenRouterChatService.shared,
          modelRepository: ModelRepositoryProtocol = ModelRepository.shared,
@@ -78,11 +97,15 @@ class ChatViewModel: ObservableObject {
         self.modelRepository = modelRepository
         self.conversationRepository = conversationRepository
         self.messageRepository = messageRepository
+        self.messagesRelay.accept(messages)
+        self.isLoadingRelay.accept(isLoading)
+        self.currentConversationIdRelay.accept(currentConversationId)
+        self.isTypingAnimatingRelay.accept(isTypingAnimating)
         // 可以添加欢迎消息
         // messages.append(Message(content: "您好！我是AI助手，有什么可以帮助您的吗？", role: .assistant))
         bootstrapConversation()
     }
-
+    
     func loadConversations() {
         Task {
             do {
@@ -95,14 +118,14 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
-
+    
     func startNewConversation() {
         currentConversationId = nil
         messages = []
         conversationId = UUID()
         currentTurnId = nil
     }
-
+    
     func selectConversation(id: String) {
         Task {
             do {
@@ -118,7 +141,7 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
-
+    
     func renameConversation(id: String, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -136,7 +159,7 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
-
+    
     func setPinned(id: String, isPinned: Bool) {
         Task {
             do {
@@ -156,7 +179,7 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
-
+    
     func deleteConversation(id: String) {
         Task {
             do {
@@ -179,7 +202,7 @@ class ChatViewModel: ObservableObject {
     func sendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) async {
         // 停止当前正在进行的打字动画
         animationStopToken = UUID()
-
+        
         if !ensureConversation() {
             return
         }
@@ -208,9 +231,9 @@ class ChatViewModel: ObservableObject {
         currentTurnId = turnId
         let baseId = makeBaseId(turnId: turnId)
         let userMessageItemId = makeItemId(baseId: baseId, kind: "user_msg", part: "main")
-
+        
         logPhase4("turn start | baseId=\(baseId) | itemId=\(userMessageItemId) | stream=\(AppConfig.enableStream)")
-
+        
         let userMessage = Message(
             content: content,
             role: .user,
@@ -264,8 +287,7 @@ class ChatViewModel: ObservableObject {
             print("  • Model   :", model.apiModel)
             print("  • Content :", content)
             // 准备发送给在线模型的消息
-            // 只发送最近 maxContextMessages 条消息，减少网络负载与延迟
-            let messagesToSend = Array(messages.suffix(maxContextMessages))
+            let messagesToSend = buildMessagesForRequest(currentUserMessage: userMessage)
             
             // 如果启用 stream 模式
             if AppConfig.enableStream {
@@ -300,9 +322,10 @@ class ChatViewModel: ObservableObject {
                     await MainActor.run {
                         if let messageIndex = messages.firstIndex(where: { $0.id == messageId }) {
                             messages[messageIndex].content = fullContent
+                            messagesRelay.accept(messages)
                         }
                     }
-
+                    
                     if chunkCount == 1 || chunkCount % 50 == 0 {
                         logPhase4("stream chunk | baseId=\(baseId) | itemId=\(assistantMessageItemId) | chunks=\(chunkCount) | len=\(fullContent.count)")
                     }
@@ -317,11 +340,12 @@ class ChatViewModel: ObservableObject {
                         Task {
                             await updatePersistedMessage(updatedMessage)
                         }
+                        messagesRelay.accept(messages)
                     }
                     isTypingAnimating = false
                 }
                 print("[ChatViewModel] 🤖 assistant message (stream):", fullContent)
-
+                
                 let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
                 logPhase4("turn end | baseId=\(baseId) | reason=closed | chunks=\(chunkCount) | len=\(fullContent.count) | durationMs=\(durationMs)")
                 currentTurnId = nil
@@ -332,7 +356,7 @@ class ChatViewModel: ObservableObject {
                     model: model.apiModel
                 )
                 
-                // 直接添加完整回复，打字机效果由 View 层的 TypewriterText 处理
+                // 直接添加完整回复，UIKit 列表负责渲染
                 let assistantMessageItemId = makeItemId(baseId: baseId, kind: "assistant_final", part: "main")
                 let assistantMessage = Message(
                     content: response,
@@ -341,8 +365,8 @@ class ChatViewModel: ObservableObject {
                     baseId: baseId,
                     itemId: assistantMessageItemId
                 )
-                // 标记：即将开始打字机动画，在动画完成前不允许再次发送
-                isTypingAnimating = true
+                // UIKit 列表直接展示完整文本，不再依赖打字机动画
+                isTypingAnimating = false
                 appendMessage(assistantMessage)
                 print("[ChatViewModel] 🤖 assistant message:", response)
                 logPhase4("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
@@ -382,16 +406,16 @@ class ChatViewModel: ObservableObject {
             await resetPersistence()
         }
     }
-
+    
     // MARK: - Phase4 辅助
     private func makeBaseId(turnId: UUID) -> String {
         "c:\(conversationId.uuidString)|t:\(turnId.uuidString)"
     }
-
+    
     private func makeItemId(baseId: String, kind: String, part: String) -> String {
         "\(baseId)|k:\(kind)|p:\(part)"
     }
-
+    
     private func logPhase4(_ message: @autoclosure () -> String) {
         guard AppConfig.enablePhase4Logs else { return }
         print("[ConversationSSE][Phase4] \(message())")
@@ -441,7 +465,7 @@ class ChatViewModel: ObservableObject {
     /// 统一追加消息并做数量裁剪，避免内存无限增长
     private func appendMessage(_ message: Message) {
         messages.append(message)
-
+        
         Task {
             await persistMessage(message)
         }
@@ -451,7 +475,7 @@ class ChatViewModel: ObservableObject {
             messages.removeFirst(overflow)
         }
     }
-
+    
     private func bootstrapConversation() {
         Task {
             do {
@@ -467,7 +491,7 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
-
+    
     private func persistMessage(_ message: Message) async {
         guard let conversationId = currentConversationId else { return }
         do {
@@ -489,7 +513,7 @@ class ChatViewModel: ObservableObject {
             print("[ChatViewModel] ⚠️ Failed to persist message: \(error)")
         }
     }
-
+    
     private func updatePersistedMessage(_ message: Message) async {
         guard let conversationId = currentConversationId else { return }
         do {
@@ -500,7 +524,52 @@ class ChatViewModel: ObservableObject {
             print("[ChatViewModel] ⚠️ Failed to update message: \(error)")
         }
     }
-
+    
+    private func buildMessagesForRequest(currentUserMessage: Message) -> [Message] {
+        let strategy = AppConfig.contextStrategy
+        let contextMessages = Array(messages.suffix(maxContextMessages))
+        
+        switch strategy {
+        case .fullContext:
+            return sanitizeMessages(
+                contextMessages,
+                currentUserMessageId: currentUserMessage.id,
+                allowCurrentImage: true
+            )
+        case .textOnly:
+            return sanitizeMessages(
+                contextMessages,
+                currentUserMessageId: currentUserMessage.id,
+                allowCurrentImage: false
+            )
+        case .currentOnly:
+            return sanitizeMessages(
+                [currentUserMessage],
+                currentUserMessageId: currentUserMessage.id,
+                allowCurrentImage: true
+            )
+        }
+    }
+    
+    private func sanitizeMessages(
+        _ source: [Message],
+        currentUserMessageId: UUID?,
+        allowCurrentImage: Bool
+    ) -> [Message] {
+        source.map { message in
+            let isCurrent = message.id == currentUserMessageId
+            let shouldKeepMedia = isCurrent && allowCurrentImage
+            var sanitized = message
+            if !shouldKeepMedia {
+                if sanitized.hasMedia && sanitized.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    sanitized.content = "（图片）"
+                }
+                sanitized.mediaContents = []
+            }
+            return sanitized
+        }
+    }
+    
     private func resetPersistence() async {
         do {
             try messageRepository.deleteAll()
@@ -512,7 +581,7 @@ class ChatViewModel: ObservableObject {
             print("[ChatViewModel] ⚠️ Failed to reset persistence: \(error)")
         }
     }
-
+    
     private func makeTitleIfNeeded(conversationId: String, content: String) throws -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -520,7 +589,7 @@ class ChatViewModel: ObservableObject {
             return nil
         }
         guard conversation.title == "新对话" else { return nil }
-
+        
         let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
         let maxLength = 24
         if firstLine.count <= maxLength {
@@ -529,7 +598,7 @@ class ChatViewModel: ObservableObject {
         let prefix = firstLine.prefix(maxLength - 3)
         return "\(prefix)..."
     }
-
+    
     @MainActor
     private func ensureConversation() -> Bool {
         if currentConversationId != nil {

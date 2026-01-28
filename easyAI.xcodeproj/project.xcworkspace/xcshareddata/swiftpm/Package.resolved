@@ -1,13 +1,31 @@
 {
-  "originHash" : "990b60bda5368230e7ae8199967ad0167867fa0677ec518c8ab0dc2f350418db",
+  "originHash" : "5222b71cd88fd0e30211e6714341a636dd045fc8b680a54dc77b445b8c2a16d6",
   "pins" : [
     {
-      "identity" : "down",
+      "identity" : "rxdatasources",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/johnxnguyen/Down.git",
+      "location" : "https://github.com/RxSwiftCommunity/RxDataSources.git",
       "state" : {
-        "branch" : "master",
-        "revision" : "e754ab1c80920dd51a8e08290c912ac1c2ac8b58"
+        "revision" : "90c29b48b628479097fe775ed1966d75ac374518",
+        "version" : "5.0.2"
+      }
+    },
+    {
+      "identity" : "rxswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ReactiveX/RxSwift.git",
+      "state" : {
+        "revision" : "5734ad2b6d7d4c0656df3d09ca4ce54fa3c09913",
+        "version" : "6.10.1"
+      }
+    },
+    {
+      "identity" : "snapkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/SnapKit/SnapKit.git",
+      "state" : {
+        "revision" : "2842e6e84e82eb9a8dac0100ca90d9444b0307f4",
+        "version" : "5.7.1"
       }
     },
     {
@@ -17,6 +35,24 @@
       "state" : {
         "revision" : "5d8825c22feedb421ad6f9ecfc1399460e10d299",
         "version" : "1.4.7"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark.git",
+      "state" : {
+        "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+        "version" : "0.7.1"
+      }
+    },
+    {
+      "identity" : "swift-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-markdown.git",
+      "state" : {
+        "revision" : "7d9a5ce307528578dfa777d505496bd5f544ad94",
+        "version" : "0.7.3"
       }
     },
     {

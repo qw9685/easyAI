@@ -1,136 +1,58 @@
 //
-//  ChatView.swift
+//  ChatInputBarView.swift
 //  EasyAI
 //
 //  创建于 2026
 //
 
-
 import SwiftUI
 import PhotosUI
-import UIKit
 
-struct ChatView: View {
-    @EnvironmentObject var viewModel: ChatViewModel
-    @StateObject private var listViewModel = ChatListViewModel()
+struct ChatInputBarView: View {
+    @ObservedObject var viewModel: ChatViewModel
     @State private var inputText: String = ""
     @FocusState private var isInputFocused: Bool
-    @State private var showModelSelector: Bool = false
-    @State private var showSettings: Bool = false
-    @State private var showConversations: Bool = false
     @State private var selectedImage: UIImage?
     @State private var selectedImageData: Data?
     @State private var selectedImageMimeType: String?
     
     var body: some View {
-        ZStack {
-            // 渐变背景
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.95, green: 0.97, blue: 1.0),
-                    Color(red: 0.98, green: 0.99, blue: 1.0)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 0) {
+            Divider()
+                .background(Color.gray.opacity(0.2))
             
-            VStack(spacing: 0) {
-                // 消息列表
-                ChatTableContainerView(viewModel: listViewModel)
+            HStack(spacing: 12) {
+                photoPickerButton
                 
-                // 输入区域
-                VStack(spacing: 0) {
-                    Divider()
-                        .background(Color.gray.opacity(0.2))
-                    
-                    HStack(spacing: 12) {
-                        // 图片选择按钮
-                        photoPickerButton
-                        
-                        // 输入框
-                        HStack(spacing: 8) {
-                            // 显示选中的图片预览
-                            if let selectedImage = selectedImage {
-                                imagePreviewView(selectedImage)
-                            }
-                            
-                            inputField
-                            
-                            if shouldShowClearButton {
-                                clearTextButton
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24)
-                                .fill(Color(.systemBackground))
-                                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
-                        )
-                        
-                        // 发送按钮
-                        sendButton
+                HStack(spacing: 8) {
+                    if let selectedImage = selectedImage {
+                        imagePreviewView(selectedImage)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        Color(.systemBackground)
-                            .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: -2)
-                    )
+                    
+                    inputField
+                    
+                    if shouldShowClearButton {
+                        clearTextButton
+                    }
                 }
-            }
-        }
-        .navigationTitle("EasyAI")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarLeading) {
-                Button(action: {
-                    showConversations = true
-                }) {
-                    Image(systemName: "list.bullet")
-                        .foregroundColor(.primary)
-                }
-            }
-            
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                // 设置按钮
-                Button(action: {
-                    showSettings = true
-                }) {
-                    Image(systemName: "gearshape")
-                        .foregroundColor(.primary)
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color(.systemBackground))
+                        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+                )
                 
+                sendButton
             }
-        }
-        .sheet(isPresented: $showModelSelector) {
-            ModelSelectorView(selectedModel: Binding(
-                get: { viewModel.selectedModel },
-                set: { viewModel.selectedModel = $0 }
-            ))
-            .environmentObject(viewModel)
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .environmentObject(viewModel)
-        }
-        .sheet(isPresented: $showConversations) {
-            ConversationListView()
-                .environmentObject(viewModel)
-        }
-        .onAppear {
-            listViewModel.bind(container: viewModel)
-            // 确保模型列表已加载
-            if viewModel.availableModels.isEmpty {
-                Task {
-                    await viewModel.loadModels()
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                Color(.systemBackground)
+                    .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: -2)
+            )
         }
     }
-    
-    // MARK: - 辅助视图
     
     @ViewBuilder
     private func imagePreviewView(_ image: UIImage) -> some View {
@@ -198,14 +120,12 @@ struct ChatView: View {
     }
     
     private func sendMessage() {
-        // 文本和图片都为空，或当前正在加载 / 打字机动画中，都不发送
         guard !isSendDisabled else { return }
         
         let message = inputText
         let imageData = selectedImageData
         let imageMimeType = selectedImageMimeType
         
-        // 清空输入和图片
         clearInput()
         
         Task {
@@ -304,7 +224,6 @@ private struct PhotosPickerButton: View {
             return "image/jpeg"
         }
         
-        // JPEG: FF D8 FF
         if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
             return "image/jpeg"
         }
@@ -313,28 +232,18 @@ private struct PhotosPickerButton: View {
             return "image/jpeg"
         }
         
-        // PNG: 89 50 4E 47
         if header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
             return "image/png"
         }
         
-        // GIF: 47 49 46
         if header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
             return "image/gif"
         }
         
-        // WebP: 52 49 46 46
         if header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
             return "image/webp"
         }
         
-        // 默认为 JPEG
         return "image/jpeg"
-    }
-}
-#Preview {
-    NavigationView {
-        ChatView()
-            .environmentObject(ChatViewModel())
     }
 }

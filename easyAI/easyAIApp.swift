@@ -19,10 +19,8 @@ struct easyAIApp: App {
     
     var body: some Scene {
         WindowGroup {
-            NavigationView {
-                ChatView()
-                    .environmentObject(chatViewModel)
-            }
+            ChatRootView()
+                .environmentObject(chatViewModel)
         }
     }
 }

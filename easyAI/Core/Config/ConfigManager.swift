@@ -19,6 +19,7 @@ class ConfigManager: ObservableObject {
     private let enableStreamKey = "Config.enableStream"
     private let maxTokensKey = "Config.maxTokens"
     private let enablePhase4LogsKey = "Config.enablePhase4Logs"
+    private let contextStrategyKey = "Config.contextStrategy"
     private let selectedModelIdKey = "Config.selectedModelId"
     private let favoriteModelIdsKey = "Config.favoriteModelIds"
     
@@ -44,6 +45,12 @@ class ConfigManager: ObservableObject {
     @Published var enablePhase4Logs: Bool {
         didSet {
             UserDefaults.standard.set(enablePhase4Logs, forKey: enablePhase4LogsKey)
+        }
+    }
+
+    @Published var contextStrategy: MessageContextStrategy {
+        didSet {
+            UserDefaults.standard.set(contextStrategy.rawValue, forKey: contextStrategyKey)
         }
     }
 
@@ -74,6 +81,8 @@ class ConfigManager: ObservableObject {
         let defaultEnablePhase4Logs = false
 #endif
         self.enablePhase4Logs = UserDefaults.standard.object(forKey: enablePhase4LogsKey) as? Bool ?? defaultEnablePhase4Logs
+        let strategyRaw = UserDefaults.standard.string(forKey: contextStrategyKey)
+        self.contextStrategy = MessageContextStrategy(rawValue: strategyRaw ?? "") ?? .fullContext
         self.selectedModelId = UserDefaults.standard.string(forKey: selectedModelIdKey)
         self.favoriteModelIds = UserDefaults.standard.stringArray(forKey: favoriteModelIdsKey) ?? []
     }
@@ -105,6 +114,11 @@ extension AppConfig {
         set { ConfigManager.shared.enablePhase4Logs = newValue }
     }
 
+    static var contextStrategy: MessageContextStrategy {
+        get { ConfigManager.shared.contextStrategy }
+        set { ConfigManager.shared.contextStrategy = newValue }
+    }
+
     /// 上次选择的模型 ID（从 ConfigManager 读取）
     static var selectedModelId: String? {
         get { ConfigManager.shared.selectedModelId }
@@ -115,5 +129,24 @@ extension AppConfig {
     static var favoriteModelIds: [String] {
         get { ConfigManager.shared.favoriteModelIds }
         set { ConfigManager.shared.favoriteModelIds = newValue }
+    }
+}
+
+enum MessageContextStrategy: String, CaseIterable, Identifiable {
+    case fullContext
+    case textOnly
+    case currentOnly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fullContext:
+            return "全部上下文"
+        case .textOnly:
+            return "仅文本"
+        case .currentOnly:
+            return "仅当前轮"
+        }
     }
 }
