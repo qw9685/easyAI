@@ -143,7 +143,7 @@ final class ChatViewController: UIViewController {
     }
     
     @objc private func showConversations() {
-        let conversationView = ConversationListView().environmentObject(viewModel)
+        let conversationView = HistoryConversationsListView().environmentObject(viewModel)
         let controller = UIHostingController(rootView: conversationView)
         controller.modalPresentationStyle = .formSheet
         present(controller, animated: true)

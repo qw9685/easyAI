@@ -14,16 +14,12 @@ struct ModelSelectorView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var viewModel: ChatViewModel
     @State private var searchText: String = ""
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String?
     @State private var selectedInputFilters: Set<String> = []
     @State private var selectedOutputFilters: Set<String> = []
     @State private var isFilterExpanded: Bool = false
     @State private var favoriteModelIds: Set<String> = []
     @State private var isFreeOnly: Bool = false
     @State private var isFavoritesOnly: Bool = false
-
-    private let modelRepository: ModelRepositoryProtocol = ModelRepository.shared
     
     /// 判断是否已经有从 API 请求到的数据
     /// 如果 availableModels 不为空，说明已经请求过
@@ -296,7 +292,7 @@ struct ModelSelectorView: View {
     
     @ViewBuilder
     private var loadingView: some View {
-        if isLoading {
+        if viewModel.isLoadingModels {
             HStack {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle())
@@ -310,7 +306,7 @@ struct ModelSelectorView: View {
     
     @ViewBuilder
     private var errorView: some View {
-        if let error = errorMessage {
+        if let error = viewModel.modelListState.errorMessage {
             VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.title2)
@@ -368,7 +364,7 @@ struct ModelSelectorView: View {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 16, weight: .medium))
         }
-        .disabled(isLoading)
+        .disabled(viewModel.isLoadingModels)
     }
     
     private var doneButton: some View {
@@ -383,24 +379,8 @@ struct ModelSelectorView: View {
         if !forceRefresh && hasFetchedData {
             return
         }
-        
-        isLoading = true
-        errorMessage = nil
-        
         Task {
-            let models = await modelRepository.fetchModels(filter: .all, forceRefresh: forceRefresh)
-
-            await MainActor.run {
-                if models.isEmpty && !hasFetchedData {
-                    errorMessage = "无法加载在线模型列表，请检查网络连接或API配置"
-                } else if models.isEmpty {
-                    errorMessage = "刷新失败，显示已有数据"
-                } else {
-                    errorMessage = nil
-                    viewModel.availableModels = models
-                }
-                isLoading = false
-            }
+            await viewModel.loadModels(forceRefresh: forceRefresh)
         }
     }
 

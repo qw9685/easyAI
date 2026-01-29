@@ -44,8 +44,8 @@ final class ChatLoadingCell: UITableViewCell {
         bubbleView.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(16)
             make.trailing.lessThanOrEqualToSuperview().inset(16)
-            make.top.equalToSuperview().offset(8)
-            make.bottom.equalToSuperview().inset(8)
+            make.top.equalToSuperview().offset(4)
+            make.bottom.equalToSuperview().inset(4)
         }
         typingDotsView.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(16)

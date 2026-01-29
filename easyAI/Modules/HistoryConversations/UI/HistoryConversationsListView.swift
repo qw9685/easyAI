@@ -1,5 +1,5 @@
 //
-//  ConversationListView.swift
+//  HistoryConversationsListView.swift
 //  EasyAI
 //
 //  创建于 2026
@@ -8,7 +8,7 @@
 
 import SwiftUI
 
-struct ConversationListView: View {
+struct HistoryConversationsListView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var renameConversation: ConversationRecord?
