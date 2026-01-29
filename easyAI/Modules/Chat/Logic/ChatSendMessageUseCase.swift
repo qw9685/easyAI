@@ -27,20 +27,17 @@ struct ChatSendMessageEnvironment {
 
 @MainActor
 final class ChatSendMessageUseCase {
-    private let specialResponsePolicy: SpecialResponsePolicy
     private let modelSelection: ModelSelectionCoordinator
     private let turnRunner: ChatTurnRunner
     private let turnIdFactory: ChatTurnIdFactory
     private let logger: ChatLogger
 
     init(
-        specialResponsePolicy: SpecialResponsePolicy,
         modelSelection: ModelSelectionCoordinator,
         turnRunner: ChatTurnRunner,
         turnIdFactory: ChatTurnIdFactory,
         logger: ChatLogger
     ) {
-        self.specialResponsePolicy = specialResponsePolicy
         self.modelSelection = modelSelection
         self.turnRunner = turnRunner
         self.turnIdFactory = turnIdFactory
@@ -58,12 +55,6 @@ final class ChatSendMessageUseCase {
 
         guard env.ensureConversation() else { return }
 
-        if imageData == nil && mediaContents.isEmpty && specialResponsePolicy.shouldUseSpecialResponse(for: content) {
-            let assistantMessage = Message(content: specialResponsePolicy.specialResponseText, role: .assistant)
-            env.appendMessage(assistantMessage)
-            return
-        }
-
         var messageMediaContents = mediaContents
         if let imageData, let mimeType = imageMimeType {
             messageMediaContents.append(
@@ -76,7 +67,7 @@ final class ChatSendMessageUseCase {
 
         let baseId = turnIdFactory.makeBaseId(turnId: turnId)
         let userMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "user_msg", part: "main")
-        logger.phase4("turn start | baseId=\(baseId) | itemId=\(userMessageItemId) | stream=\(AppConfig.enableStream)")
+        logger.phase("turn start | baseId=\(baseId) | itemId=\(userMessageItemId) | stream=\(AppConfig.enableStream)")
 
         let userMessage = Message(
             content: content,
@@ -97,7 +88,7 @@ final class ChatSendMessageUseCase {
             let errorItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "error", part: reason)
             let errorMsg = Message(content: message, role: .assistant, turnId: turnId, baseId: baseId, itemId: errorItemId)
             env.appendMessage(errorMsg)
-            logger.phase4("turn end | baseId=\(baseId) | reason=\(reason)")
+            logger.phase("turn end | baseId=\(baseId) | reason=\(reason)")
             env.setCurrentTurnId(nil)
             env.setIsLoading(false)
             return
@@ -124,7 +115,7 @@ final class ChatSendMessageUseCase {
                 env.setIsTypingAnimating(true)
 
                 let messageId = assistantMessage.id
-                logger.phase4("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString)")
+                logger.phase("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString)")
 
                 let result = try await turnRunner.runStream(
                     messages: messagesToSend,
@@ -132,7 +123,7 @@ final class ChatSendMessageUseCase {
                     onProgress: { progress in
                         env.updateMessageContent(messageId, progress.fullContent)
                         if progress.chunkCount == 1 || progress.chunkCount % 50 == 0 {
-                            self.logger.phase4(
+                            self.logger.phase(
                                 "stream chunk | baseId=\(baseId) | itemId=\(assistantMessageItemId) | chunks=\(progress.chunkCount) | len=\(progress.fullContent.count)"
                             )
                         }
@@ -160,7 +151,7 @@ final class ChatSendMessageUseCase {
                     }
                 }
 
-                logger.phase4(
+                logger.phase(
                     "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
                 )
                 env.setCurrentTurnId(nil)
@@ -183,7 +174,7 @@ final class ChatSendMessageUseCase {
                     env.appendMessage(assistantMessage)
                 }
 
-                logger.phase4("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
+                logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
                 env.setCurrentTurnId(nil)
             }
         } catch {
@@ -198,7 +189,7 @@ final class ChatSendMessageUseCase {
                 env.setIsTypingAnimating(false)
                 env.setCurrentTurnId(nil)
             }
-            logger.phase4("turn end | baseId=\(baseId) | reason=error | error=\(errorDesc)")
+            logger.phase("turn end | baseId=\(baseId) | reason=error | error=\(errorDesc)")
         }
     }
 }

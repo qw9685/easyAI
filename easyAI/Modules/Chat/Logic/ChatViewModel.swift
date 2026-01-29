@@ -41,15 +41,17 @@ class ChatViewModel: ObservableObject {
     var isLoadingModels: Bool { modelListState.isLoading }
     @Published var conversations: [ConversationRecord] = []
     @Published private(set) var listSnapshot: ChatListSnapshot = .empty
+    @Published private(set) var isSwitchingConversation: Bool = false
+    @Published private(set) var switchingConversationId: String?
     
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
     private var isBatchingSnapshot: Bool = false
     private var loadConversationsTask: Task<Void, Never>?
+    private var selectConversationTask: Task<Void, Never>?
     
     private let chatService: ChatServiceProtocol
     private let contextBuilder: ChatContextBuilding
-    private let specialResponsePolicy: SpecialResponsePolicy
     private let turnRunner: ChatTurnRunner
     private let persistence: ChatMessagePersistence
     private let conversationCoordinator: ConversationCoordinator
@@ -91,10 +93,9 @@ class ChatViewModel: ObservableObject {
     init(chatService: ChatServiceProtocol = OpenRouterChatService.shared,
          modelRepository: ModelRepositoryProtocol = ModelRepository.shared,
          conversationRepository: ConversationRepository = ConversationRepository.shared,
-         messageRepository: MessageRepository = MessageRepository.shared) {
+        messageRepository: MessageRepository = MessageRepository.shared) {
         self.chatService = chatService
         self.contextBuilder = ChatContextBuilder()
-        self.specialResponsePolicy = DefaultSpecialResponsePolicy()
         self.turnRunner = ChatTurnRunner(chatService: chatService)
         self.persistence = ChatMessagePersistence(
             conversationRepository: conversationRepository,
@@ -107,9 +108,8 @@ class ChatViewModel: ObservableObject {
         self.sessionCoordinator = ChatSessionCoordinator()
         self.modelSelection = ModelSelectionCoordinator(modelRepository: modelRepository)
         self.turnIdFactory = ChatTurnIdFactory()
-        self.logger = ChatLogger(isPhase4Enabled: { AppConfig.enablePhase4Logs })
+        self.logger = ChatLogger(isphaseEnabled: { AppConfig.enablephaseLogs })
         self.sendMessageUseCase = ChatSendMessageUseCase(
-            specialResponsePolicy: self.specialResponsePolicy,
             modelSelection: self.modelSelection,
             turnRunner: self.turnRunner,
             turnIdFactory: self.turnIdFactory,
@@ -129,9 +129,21 @@ class ChatViewModel: ObservableObject {
     }
     
     func selectConversation(id: String) {
-        Task {
+        selectConversationTask?.cancel()
+        Task { @MainActor in
+            self.applySessionSnapshot(
+                self.sessionCoordinator.selectConversation(
+                    conversationId: id,
+                    loadedMessages: []
+                )
+            )
+        }
+
+        selectConversationTask = Task { [weak self] in
+            guard let self else { return }
             do {
-                let loadedMessages = try conversationCoordinator.fetchMessages(conversationId: id)
+                let loadedMessages = try self.conversationCoordinator.fetchMessages(conversationId: id)
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.applySessionSnapshot(
                         self.sessionCoordinator.selectConversation(
@@ -141,7 +153,54 @@ class ChatViewModel: ObservableObject {
                     )
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 print("[ChatViewModel] ⚠️ Failed to load conversation: \(error)")
+            }
+        }
+    }
+
+    /// 用于“会话列表点击后，等数据加载完再切换”的体验：不会短暂展示上一会话内容。
+    func selectConversationAfterLoaded(id: String) async {
+        await MainActor.run {
+            isSwitchingConversation = true
+            switchingConversationId = id
+        }
+
+        defer {
+            Task { @MainActor in
+                isSwitchingConversation = false
+                switchingConversationId = nil
+            }
+        }
+
+        do {
+            let loadedMessages = try await fetchMessagesInBackground(conversationId: id)
+            await MainActor.run {
+                applySessionSnapshot(
+                    sessionCoordinator.selectConversation(
+                        conversationId: id,
+                        loadedMessages: loadedMessages
+                    )
+                )
+            }
+        } catch {
+            print("[ChatViewModel] ⚠️ Failed to load conversation: \(error)")
+        }
+    }
+
+    private func fetchMessagesInBackground(conversationId: String) async throws -> [Message] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                do {
+                    let messages = try self.conversationCoordinator.fetchMessages(conversationId: conversationId)
+                    continuation.resume(returning: messages)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
@@ -235,7 +294,7 @@ class ChatViewModel: ObservableObject {
     @MainActor
     func clearMessages() {
         applySessionSnapshot(sessionCoordinator.clearMessages())
-        logger.phase4("conversation reset | conversationId=\(conversationId.uuidString)")
+        logger.phase("conversation reset | conversationId=\(conversationId.uuidString)")
         Task {
             await resetPersistence()
         }

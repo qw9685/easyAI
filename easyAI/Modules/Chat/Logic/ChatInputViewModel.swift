@@ -11,18 +11,28 @@ import Combine
 
 @MainActor
 final class ChatInputViewModel: ObservableObject {
+    struct SelectedImage: Identifiable, Equatable {
+        let id: UUID
+        let image: UIImage
+        let media: MediaContent
+
+        static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {
+            lhs.id == rhs.id
+        }
+    }
+
     @Published var inputText: String = ""
-    @Published var selectedImage: UIImage?
-    @Published var selectedImageData: Data?
-    @Published var selectedImageMimeType: String?
+    @Published private(set) var selectedImages: [SelectedImage] = []
+
+    let maxImageCount: Int = 5
 
     var shouldShowClearButton: Bool {
-        !inputText.isEmpty && selectedImage == nil
+        !inputText.isEmpty
     }
 
     func isSendDisabled(isChatLoading: Bool, isTypingAnimating: Bool) -> Bool {
         let textIsEmpty = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let noImage = selectedImage == nil
+        let noImage = selectedImages.isEmpty
         let hasNoContent = textIsEmpty && noImage
         return hasNoContent || isChatLoading || isTypingAnimating
     }
@@ -31,21 +41,27 @@ final class ChatInputViewModel: ObservableObject {
         inputText = ""
     }
 
-    func clearSelectedImage() {
-        selectedImage = nil
-        selectedImageData = nil
-        selectedImageMimeType = nil
-    }
+    func clearSelectedImages() { selectedImages = [] }
 
     func clearAll() {
         inputText = ""
-        clearSelectedImage()
+        clearSelectedImages()
     }
 
-    func setSelectedImageData(_ data: Data) {
-        selectedImageData = data
-        selectedImage = UIImage(data: data)
-        selectedImageMimeType = Self.detectImageMimeType(data)
+    var remainingSelectionLimit: Int {
+        max(0, maxImageCount - selectedImages.count)
+    }
+
+    func addSelectedImageData(_ data: Data) {
+        guard remainingSelectionLimit > 0 else { return }
+        guard let image = UIImage(data: data) else { return }
+        let mimeType = Self.detectImageMimeType(data)
+        let media = MediaContent(id: UUID(), type: .image, data: data, mimeType: mimeType, fileName: nil)
+        selectedImages.append(SelectedImage(id: media.id, image: image, media: media))
+    }
+
+    func removeSelectedImage(id: UUID) {
+        selectedImages.removeAll { $0.id == id }
     }
 
     func send(chatViewModel: ChatViewModel) {
@@ -54,13 +70,12 @@ final class ChatInputViewModel: ObservableObject {
         }
 
         let message = inputText
-        let imageData = selectedImageData
-        let imageMimeType = selectedImageMimeType
+        let mediaContents = selectedImages.map { $0.media }
 
         clearAll()
 
         Task {
-            await chatViewModel.sendMessage(message, imageData: imageData, imageMimeType: imageMimeType)
+            await chatViewModel.sendMessage(message, mediaContents: mediaContents)
         }
     }
 

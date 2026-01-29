@@ -45,8 +45,7 @@ final class ChatEmptyStateView: UIView {
         stack.spacing = 12
         addSubview(stack)
         stack.snp.makeConstraints { make in
-            make.centerX.equalToSuperview()
-            make.top.equalToSuperview().offset(120)
+            make.center.equalToSuperview()
             make.leading.greaterThanOrEqualToSuperview().offset(24)
             make.trailing.lessThanOrEqualToSuperview().inset(24)
         }

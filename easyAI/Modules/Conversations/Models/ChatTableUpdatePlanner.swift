@@ -25,6 +25,12 @@ enum ChatTableUpdatePlanner {
         let currLast = curr.messages[lastIndex]
         if prevLast.id != currLast.id { return .bindSections }
 
+        if currLast.isStreaming,
+           prevLast.content.isEmpty,
+           !currLast.content.isEmpty {
+            return .bindSections
+        }
+
         // 只要最后一条仍在 streaming（isStreaming=true）且只是 content 变化，就可以走 streaming-only reload。
         if currLast.isStreaming,
            prevLast.isStreaming == currLast.isStreaming,

@@ -10,6 +10,7 @@ import Foundation
 
 struct AppConfig {
     private static let infoPlistAPIKey = "OPENROUTER_API_KEY"
+    static let requestTimeoutSeconds: TimeInterval = 20
 
     static var apiKey: String {
         let storedKey = SecretsStore.shared.apiKey

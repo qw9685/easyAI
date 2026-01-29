@@ -14,18 +14,22 @@ struct HistoryConversationsListView: View {
     @State private var renameConversation: ConversationRecord?
     @State private var renameTitle: String = ""
     @State private var showRenameAlert: Bool = false
-
+    
     var body: some View {
         NavigationView {
             List {
                 ForEach(viewModel.conversations, id: \.id) { conversation in
                     Button {
-                        viewModel.selectConversation(id: conversation.id)
-                        dismiss()
+                        guard !viewModel.isSwitchingConversation else { return }
+                        Task {
+                            await viewModel.selectConversationAfterLoaded(id: conversation.id)
+                            dismiss()
+                        }
                     } label: {
                         ConversationRow(conversation: conversation,
                                         isCurrent: conversation.id == viewModel.currentConversationId)
                     }
+                    .disabled(viewModel.isSwitchingConversation)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
                             renameConversation = conversation

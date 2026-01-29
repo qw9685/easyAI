@@ -15,9 +15,7 @@ final class ChatViewController: UIViewController {
     private let viewModel: ChatViewModel
     private let listViewModel = ChatListViewModel()
     private let tableViewController = ChatTableViewController()
-    private lazy var inputHostingController = UIHostingController(
-        rootView: ChatInputBarView(viewModel: viewModel)
-    )
+    private lazy var inputBarController = ChatInputBarViewController(viewModel: viewModel)
     private let disposeBag = DisposeBag()
     private var inputBarBottomConstraint: Constraint?
     private let backgroundGradient = CAGradientLayer()
@@ -37,6 +35,10 @@ final class ChatViewController: UIViewController {
         bindViewModel()
         bindKeyboard()
         loadModelsIfNeeded()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
     }
     
     override func viewDidLayoutSubviews() {
@@ -64,16 +66,16 @@ final class ChatViewController: UIViewController {
         view.addSubview(tableViewController.view)
         tableViewController.didMove(toParent: self)
         
-        addChild(inputHostingController)
-        view.addSubview(inputHostingController.view)
-        inputHostingController.didMove(toParent: self)
-        inputHostingController.view.backgroundColor = .clear
+        addChild(inputBarController)
+        view.addSubview(inputBarController.view)
+        inputBarController.didMove(toParent: self)
+        inputBarController.view.backgroundColor = .clear
         
         tableViewController.view.snp.makeConstraints { make in
             make.leading.trailing.top.equalToSuperview()
-            make.bottom.equalTo(inputHostingController.view.snp.top)
+            make.bottom.equalTo(inputBarController.view.snp.top)
         }
-        inputHostingController.view.snp.makeConstraints { make in
+        inputBarController.view.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
             inputBarBottomConstraint = make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).constraint
         }
@@ -96,7 +98,11 @@ final class ChatViewController: UIViewController {
         tableViewController.bind(viewModel: listViewModel)
         
     }
-    
+
+    @objc private func didTapBackgroundToDismissKeyboard() {
+        view.endEditing(true)
+    }
+
     private func bindKeyboard() {
         NotificationCenter.default.rx.notification(UIResponder.keyboardWillChangeFrameNotification)
             .observe(on: MainScheduler.instance)
@@ -123,6 +129,9 @@ final class ChatViewController: UIViewController {
         let options = UIView.AnimationOptions(rawValue: curveValue << 16)
         UIView.animate(withDuration: duration, delay: 0, options: options) {
             self.view.layoutIfNeeded()
+            self.tableViewController.keepBottomPinnedForLayoutChange(animated: true)
+        } completion: { _ in
+            self.tableViewController.keepBottomPinnedForLayoutChange(animated: false)
         }
     }
     

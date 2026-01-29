@@ -17,18 +17,18 @@ struct ChatListState {
 
 enum ChatRow: IdentifiableType, Equatable {
     case messageMarkdown(Message)
-    case messageSend(messageId: UUID, text: String, timestamp: Date)
-    case messageMedia(messageId: UUID, role: MessageRole, mediaContents: [MediaContent])
+    case messageSend(Message)
+    case messageMedia(Message)
     case loading
     
     var identity: String {
         switch self {
         case .messageMarkdown(let message):
             return "\(message.id.uuidString)|markdown"
-        case .messageSend(let messageId, _, _):
-            return "\(messageId.uuidString)|send"
-        case .messageMedia(let messageId, _, _):
-            return "\(messageId.uuidString)|media"
+        case .messageSend(let message):
+            return "\(message.id.uuidString)|send"
+        case .messageMedia(let message):
+            return "\(message.id.uuidString)|media"
         case .loading:
             return "loading"
         }
@@ -44,14 +44,17 @@ enum ChatRow: IdentifiableType, Equatable {
                 && left.isStreaming == right.isStreaming
                 && left.wasStreamed == right.wasStreamed
                 && left.role == right.role
-        case (.messageSend(let leftId, let leftText, let leftTime),
-              .messageSend(let rightId, let rightText, let rightTime)):
-            return leftId == rightId && leftText == rightText && leftTime == rightTime
-        case (.messageMedia(let leftId, let leftRole, let leftMedia),
-              .messageMedia(let rightId, let rightRole, let rightMedia)):
-            return leftId == rightId
-                && leftRole == rightRole
-                && mediaSignature(leftMedia) == mediaSignature(rightMedia)
+        case (.messageSend(let left), .messageSend(let right)):
+            return left.id == right.id
+                && left.content == right.content
+                && left.timestamp == right.timestamp
+                && left.role == right.role
+        case (.messageMedia(let left), .messageMedia(let right)):
+            return left.id == right.id
+                && left.role == right.role
+                && left.timestamp == right.timestamp
+                && left.isStreaming == right.isStreaming
+                && mediaSignature(left.mediaContents) == mediaSignature(right.mediaContents)
         default:
             return false
         }

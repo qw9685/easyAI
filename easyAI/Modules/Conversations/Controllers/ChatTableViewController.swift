@@ -29,6 +29,19 @@ final class ChatTableViewController: UIViewController {
         super.viewDidLoad()
         setupTableView()
     }
+
+    /// 键盘/输入栏导致布局变化时，如果当前处于“黏底”状态，则保持滚动在最底部。
+    /// 由外层（ChatViewController）在键盘动画 block 内/结束后调用。
+    func keepBottomPinnedForLayoutChange(animated: Bool) {
+        let userIsInteracting = tableView.isTracking || tableView.isDragging || tableView.isDecelerating
+        guard !userIsInteracting, autoScroll.shouldAutoScrollForStreaming() else { return }
+
+        if animated {
+            layoutAndScrollToBottom(animated: true)
+        } else {
+            scrollToBottomAfterLayout()
+        }
+    }
     
     func bind(viewModel: ChatListViewModel) {
         if boundViewModel === viewModel { return }
@@ -40,7 +53,6 @@ final class ChatTableViewController: UIViewController {
 
         let state = viewModel.stateRelay
             .asObservable()
-            .observe(on: MainScheduler.instance)
             .share(replay: 1)
         
         let statePairs = state
@@ -84,7 +96,17 @@ final class ChatTableViewController: UIViewController {
         currentIsLoading = state.isLoading
         lastConversationId = state.conversationId
         updateEmptyState()
-        sectionsRelay.accept(state.sections)
+        if conversationChanged {
+            latestSections = state.sections
+            dataSource.setSections(state.sections)
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+                tableView.layoutIfNeeded()
+            }
+            autoScroll.recordPinnedContentHeight(tableView.contentSize.height)
+        } else {
+            sectionsRelay.accept(state.sections)
+        }
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -186,7 +208,7 @@ extension ChatTableViewController: UITableViewDelegate {
         case .loading:
             return 35
         case .messageMedia:
-            return 220
+            return 170
         case .messageMarkdown(let message) where message.isStreaming && message.content.isEmpty:
             return 0
         case .messageMarkdown:
@@ -228,6 +250,22 @@ private extension ChatTableViewController {
         let viewHeight = tableView.bounds.height
         let bottomY = max(-insets.top, contentHeight - viewHeight + insets.bottom)
         tableView.setContentOffset(CGPoint(x: 0, y: bottomY), animated: false)
+    }
+
+    func layoutAndScrollToBottom(animated: Bool) {
+        tableView.layoutIfNeeded()
+
+        let insets = tableView.adjustedContentInset
+        let contentHeight = tableView.contentSize.height
+        let viewHeight = tableView.bounds.height
+        let bottomY = max(-insets.top, contentHeight - viewHeight + insets.bottom)
+
+        if animated {
+            tableView.contentOffset = CGPoint(x: 0, y: bottomY)
+        } else {
+            tableView.setContentOffset(CGPoint(x: 0, y: bottomY), animated: false)
+        }
+        autoScroll.recordPinnedContentHeight(tableView.contentSize.height)
     }
 
     func scrollToBottomAfterLayout(maxPasses: Int = 2) {

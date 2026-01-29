@@ -17,12 +17,15 @@ enum ChatRowBuilder {
 
         for message in messages {
             if !message.mediaContents.isEmpty {
-                items.append(.messageMedia(messageId: message.id, role: message.role, mediaContents: message.mediaContents))
+                items.append(.messageMedia(message))
             }
 
             if message.role == .user {
-                items.append(.messageSend(messageId: message.id, text: message.content, timestamp: message.timestamp))
-            } else if !message.content.isEmpty || message.isStreaming {
+                let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    items.append(.messageSend(message))
+                }
+            } else if !message.content.isEmpty {
                 items.append(.messageMarkdown(message))
             }
         }
@@ -34,4 +37,3 @@ enum ChatRowBuilder {
         return items
     }
 }
-

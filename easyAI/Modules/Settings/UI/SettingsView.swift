@@ -27,7 +27,7 @@ struct SettingsView: View {
                     
                     Toggle("启用流式响应", isOn: $configManager.enableStream)
 
-                    Toggle("启用 Phase4 日志（turnId/itemId）", isOn: $configManager.enablePhase4Logs)
+                    Toggle("启用 phase 日志（turnId/itemId）", isOn: $configManager.enablephaseLogs)
 
                     Picker("上下文策略", selection: $configManager.contextStrategy) {
                         ForEach(MessageContextStrategy.allCases) { strategy in

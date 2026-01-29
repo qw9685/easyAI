@@ -30,11 +30,7 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
     }
     
     func configure(with message: Message) {
-        configureBase(
-            role: message.role,
-            timestamp: message.timestamp,
-            showTimestamp: !message.isStreaming
-        )
+        configureBase(message: message)
         
         setBubbleHidden(message.content.isEmpty)
         messageLabel.textColor = .label
@@ -58,7 +54,7 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
         contentStack.addArrangedSubview(messageLabel)
         bubbleContentView.addSubview(contentStack)
         contentStack.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
         }
     }
 }

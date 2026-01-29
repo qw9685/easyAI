@@ -30,13 +30,14 @@ final class ChatMessageSendCell: ChatBaseBubbleCell {
         messageLabel.text = nil
     }
     
-    func configure(text: String, timestamp: Date) {
-        configureBase(role: .user, timestamp: timestamp, showTimestamp: true)
-        setBubbleHidden(text.isEmpty)
+    func configure(with message: Message) {
+        let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        configureBase(message: message, showTimestamp: true)
+        setBubbleHidden(trimmed.isEmpty)
         messageLabel.textColor = .white
         messageLabel.textAlignment = .right
-        messageLabel.text = text
-        messageLabel.isHidden = text.isEmpty
+        messageLabel.text = message.content
+        messageLabel.isHidden = trimmed.isEmpty
     }
     
     private func setupViews() {
@@ -52,7 +53,7 @@ final class ChatMessageSendCell: ChatBaseBubbleCell {
         contentStack.addArrangedSubview(messageLabel)
         bubbleContentView.addSubview(contentStack)
         contentStack.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
         }
     }
 }

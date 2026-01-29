@@ -18,7 +18,7 @@ class ConfigManager: ObservableObject {
     private let useMockDataKey = "Config.useMockData"
     private let enableStreamKey = "Config.enableStream"
     private let maxTokensKey = "Config.maxTokens"
-    private let enablePhase4LogsKey = "Config.enablePhase4Logs"
+    private let enablephaseLogsKey = "Config.enablephaseLogs"
     private let contextStrategyKey = "Config.contextStrategy"
     private let selectedModelIdKey = "Config.selectedModelId"
     private let favoriteModelIdsKey = "Config.favoriteModelIds"
@@ -42,9 +42,9 @@ class ConfigManager: ObservableObject {
         }
     }
 
-    @Published var enablePhase4Logs: Bool {
+    @Published var enablephaseLogs: Bool {
         didSet {
-            UserDefaults.standard.set(enablePhase4Logs, forKey: enablePhase4LogsKey)
+            UserDefaults.standard.set(enablephaseLogs, forKey: enablephaseLogsKey)
         }
     }
 
@@ -76,11 +76,11 @@ class ConfigManager: ObservableObject {
         self.enableStream = UserDefaults.standard.object(forKey: enableStreamKey) as? Bool ?? true
         self.maxTokens = UserDefaults.standard.object(forKey: maxTokensKey) as? Int ?? 1000
 #if DEBUG
-        let defaultEnablePhase4Logs = true
+        let defaultEnablephaseLogs = true
 #else
-        let defaultEnablePhase4Logs = false
+        let defaultEnablephaseLogs = false
 #endif
-        self.enablePhase4Logs = UserDefaults.standard.object(forKey: enablePhase4LogsKey) as? Bool ?? defaultEnablePhase4Logs
+        self.enablephaseLogs = UserDefaults.standard.object(forKey: enablephaseLogsKey) as? Bool ?? defaultEnablephaseLogs
         let strategyRaw = UserDefaults.standard.string(forKey: contextStrategyKey)
         self.contextStrategy = MessageContextStrategy(rawValue: strategyRaw ?? "") ?? .fullContext
         self.selectedModelId = UserDefaults.standard.string(forKey: selectedModelIdKey)
@@ -108,10 +108,10 @@ extension AppConfig {
         set { ConfigManager.shared.maxTokens = newValue }
     }
 
-    /// Phase4（turnId/itemId）相关日志开关（从 ConfigManager 读取）
-    static var enablePhase4Logs: Bool {
-        get { ConfigManager.shared.enablePhase4Logs }
-        set { ConfigManager.shared.enablePhase4Logs = newValue }
+    /// phase（turnId/itemId）相关日志开关（从 ConfigManager 读取）
+    static var enablephaseLogs: Bool {
+        get { ConfigManager.shared.enablephaseLogs }
+        set { ConfigManager.shared.enablephaseLogs = newValue }
     }
 
     static var contextStrategy: MessageContextStrategy {

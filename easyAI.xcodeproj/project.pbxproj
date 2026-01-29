@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		42233F582F2B2EE200D4EAB5 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 42233F572F2B2EE200D4EAB5 /* Kingfisher */; };
 		4223D0B82F28B3D400D4EAB5 /* RxCocoa in Frameworks */ = {isa = PBXBuildFile; productRef = 4223D0B72F28B3D400D4EAB5 /* RxCocoa */; };
 		4223D2662F29C07900D4EAB5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 4223D2652F29C07900D4EAB5 /* Markdown */; };
 		429122AA2F237CEA00F9062D /* WCDBSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 429122A92F237CEA00F9062D /* WCDBSwift */; };
@@ -63,6 +64,7 @@
 			files = (
 				42D0A9892F28A80B00BDAC62 /* RxSwift in Frameworks */,
 				42D0A9942F28AC6900BDAC62 /* SnapKit in Frameworks */,
+				42233F582F2B2EE200D4EAB5 /* Kingfisher in Frameworks */,
 				4223D0B82F28B3D400D4EAB5 /* RxCocoa in Frameworks */,
 				4223D2662F29C07900D4EAB5 /* Markdown in Frameworks */,
 				4A1A0A1B2C3D4E5F00112233 /* RxDataSources in Frameworks */,
@@ -141,6 +143,7 @@
 				4223D0B72F28B3D400D4EAB5 /* RxCocoa */,
 				4A1A0A1B2C3D4E5F00112234 /* RxDataSources */,
 				4223D2652F29C07900D4EAB5 /* Markdown */,
+				42233F572F2B2EE200D4EAB5 /* Kingfisher */,
 			);
 			productName = easyAI;
 			productReference = 421B2E6A2EE72E6300F921B7 /* easyAI.app */;
@@ -230,6 +233,7 @@
 				42D0A9852F28A7F600BDAC62 /* XCRemoteSwiftPackageReference "RxSwift" */,
 				4223D2642F29C07900D4EAB5 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				4223D26B2F29C19A00D4EAB5 /* XCRemoteSwiftPackageReference "RxDataSources" */,
+				42233F562F2B2EE200D4EAB5 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 421B2E6B2EE72E6300F921B7 /* Products */;
@@ -441,7 +445,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -474,7 +478,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -618,6 +622,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		42233F562F2B2EE200D4EAB5 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.6.2;
+			};
+		};
 		4223D2642F29C07900D4EAB5 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
@@ -669,6 +681,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		42233F572F2B2EE200D4EAB5 /* Kingfisher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 42233F562F2B2EE200D4EAB5 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
+		};
 		4223D0B72F28B3D400D4EAB5 /* RxCocoa */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 42D0A9852F28A7F600BDAC62 /* XCRemoteSwiftPackageReference "RxSwift" */;

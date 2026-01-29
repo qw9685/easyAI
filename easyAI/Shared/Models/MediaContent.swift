@@ -60,7 +60,7 @@ struct MediaContent: Identifiable, Codable {
         data.count
     }
     
-    /// 获取文件大小（人类可读格式）
+    /// 获取文件大小
     var fileSizeFormatted: String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB]

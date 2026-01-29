@@ -100,6 +100,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = AppConfig.requestTimeoutSeconds
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -140,6 +141,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = AppConfig.requestTimeoutSeconds
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("https://github.com/yourusername/easyAI", forHTTPHeaderField: "HTTP-Referer")

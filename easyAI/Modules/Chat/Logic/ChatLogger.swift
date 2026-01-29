@@ -8,15 +8,15 @@
 import Foundation
 
 struct ChatLogger {
-    let isPhase4Enabled: () -> Bool
+    let isphaseEnabled: () -> Bool
 
-    init(isPhase4Enabled: @escaping () -> Bool) {
-        self.isPhase4Enabled = isPhase4Enabled
+    init(isphaseEnabled: @escaping () -> Bool) {
+        self.isphaseEnabled = isphaseEnabled
     }
 
-    func phase4(_ message: @autoclosure () -> String) {
-        guard isPhase4Enabled() else { return }
-        print("[ConversationSSE][Phase4] \(message())")
+    func phase(_ message: @autoclosure () -> String) {
+        guard isphaseEnabled() else { return }
+        print("[ConversationSSE][phase] \(message())")
     }
 }
 

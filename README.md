@@ -1,39 +1,28 @@
 # EasyAI - iOS AI聊天应用
 
-一个使用 SwiftUI 开发的现代化 iOS AI 聊天应用，通过 OpenRouter API 支持多个主流 AI 模型，提供流畅的聊天体验。
+一个现代化 iOS AI 聊天应用，通过 OpenRouter API 支持多个主流 AI 模型，提供流畅的聊天体验（SwiftUI + UIKit 混合实现）。
 
 ## ✨ 功能特性
 
-- 🎨 **现代化 SwiftUI 界面** - 渐变背景、圆角气泡、流畅动画
+- 🎨 **现代化界面** - 渐变背景、圆角气泡、流畅动画（SwiftUI + UIKit）
 - 🤖 **多模型支持** - 通过 OpenRouter 支持多个 AI 模型（Claude、GPT、Gemini 等）
-- 💬 **流式响应** - 实时流式输出，打字机效果展示
-- 🖼️ **多模态输入** - 支持图片输入，AI 可以理解图片内容
+- 💬 **流式响应** - SSE 实时流式输出（非本地逐字“打字机”动画）
+- 🖼️ **多模态输入** - 支持图片输入；相册多选（最多 5 张）+ 发送前预览/删除
+- 🧩 **多图消息展示** - 聊天内图片消息支持多张横向滚动展示
 - 🔍 **智能模型选择** - 可搜索和筛选不同 AI 模型
 - ⭐ **模型管理增强** - 收藏模型、记住上次选择、价格/上下文长度展示、仅免费筛选
 - 🗂️ **对话历史管理** - 多会话列表、重命名、置顶、删除
 - 💾 **本地持久化** - 会话与消息本地保存，冷启动可恢复
-- 📱 **原生 iOS 体验** - 完全使用 SwiftUI 构建，适配 iOS 15+
+- 📱 **原生 iOS 体验** - 适配 iOS 15+
 - ⚙️ **灵活配置** - 支持自定义 API Key 和模型参数
 
 ## 📁 项目结构
 
 ```
 easyAI/
-├── easyAIApp.swift              # 应用入口
-├── Core/
-│   ├── Config/                  # 配置与偏好
-│   ├── Networking/              # OpenRouter 网络层与 SSE 解析
-│   ├── Repositories/            # 数据仓库
-│   ├── Security/                # Keychain 存储
-│   └── UI/                      # 共享 UI 组件
-├── Features/
-│   ├── Chat/                    # 聊天主功能
-│   ├── Models/                  # 模型选择功能
-│   └── Settings/                # 设置界面
-└── Models/
-    ├── AIModel.swift            # AI模型数据模型
-    ├── Message.swift            # 消息数据模型
-    └── MediaContent.swift       # 媒体内容模型
+├── App/                         # 应用入口/启动
+├── Modules/                     # 业务模块（Chat/Conversations/Models/Settings/HistoryConversations）
+└── Shared/                      # 共享层（Config/Networking/Persistence/Repositories/Security/UI/Models）
 ```
 
 ## 设置步骤
@@ -59,21 +48,23 @@ easyAI/
 
 ## 🎯 核心功能说明
 
-### 流式响应与打字机效果
+### 流式响应
 - 支持 Server-Sent Events (SSE) 流式响应
-- 实时显示 AI 回复，带有流畅的打字机动画效果
-- 自动滚动跟随最新消息
+- 实时更新 AI 回复内容；结束后显示时间
+- 自动滚动跟随最新消息，键盘弹出/收起时保持“黏底”
 
 ### 多模态支持
 - 支持图片输入（JPEG、PNG、GIF、WebP）
 - AI 可以理解和分析图片内容
-- 图片预览和删除功能
+- 相册多选（最多 5 张）+ 发送前预览/删除
+- 聊天内多图横向滚动展示（图片加载使用 Kingfisher 缓存）
 
 ### 模型管理
 - 从 OpenRouter API 动态获取可用模型列表
 - 支持搜索与多维筛选（输入/输出类型、仅免费、仅收藏）
 - 显示模型详细信息（多模态支持、输入/输出类型、价格、上下文长度）
 - 收藏模型并置顶显示，记住上次选择的模型
+- 上下文策略：全部上下文 / 仅文本 / 仅当前轮
 
 ### 对话历史与持久化
 - 支持多会话列表（重命名、置顶、删除）
@@ -84,7 +75,7 @@ easyAI/
 
 - iOS 15.0+
 - Swift 5.5+
-- SwiftUI
+- SwiftUI + UIKit
 - Xcode 14.0+
 
 ## ⚠️ 注意事项
@@ -111,7 +102,7 @@ MIT License
 ## 🙏 致谢
 
 - [OpenRouter](https://openrouter.ai/) - 提供统一的 AI 模型 API 接口
-- SwiftUI - Apple 的声明式 UI 框架
+- SwiftUI / UIKit - Apple 原生 UI 框架
 
 ---
 

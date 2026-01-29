@@ -20,6 +20,7 @@ final class ChatListViewModel: ObservableObject {
     private var disposeBag = DisposeBag()
     private var cancellables: Set<AnyCancellable> = []
     private weak var boundContainer: ChatViewModel?
+    private var lastConversationId: String?
     private(set) var isUserAtBottom: Bool = true
     var autoScrollThreshold: CGFloat = 80
     var stateThrottleMilliseconds: Int = 80
@@ -35,20 +36,40 @@ final class ChatListViewModel: ObservableObject {
         cancellables.removeAll()
         
         container.$listSnapshot
-            .receive(on: RunLoop.main)
             .sink { [weak self] snapshot in
-                self?.snapshotRelay.accept(snapshot)
+                guard let self else { return }
+                if self.lastConversationId != snapshot.conversationId {
+                    self.lastConversationId = snapshot.conversationId
+                    // 会话切换：同步下发到 stateRelay，避免 Rx 节流/调度导致 dismiss 时短暂露出旧列表
+                    self.stateRelay.accept(self.stateBuilder.build(from: snapshot))
+                    return
+                }
+                self.snapshotRelay.accept(snapshot)
             }
             .store(in: &cancellables)
 
         snapshotRelay
             .asObservable()
             .observe(on: MainScheduler.instance)
-            .throttle(
-                .milliseconds(stateThrottleMilliseconds),
-                latest: true,
-                scheduler: MainScheduler.instance
-            )
+            .scan((prev: ChatListSnapshot?.none, curr: ChatListSnapshot?.none)) { acc, new in
+                (prev: acc.curr, curr: new)
+            }
+            .compactMap { pair -> (prev: ChatListSnapshot?, curr: ChatListSnapshot)? in
+                guard let curr = pair.curr else { return nil }
+                return (prev: pair.prev, curr: curr)
+            }
+            .flatMapLatest { [weak self] pair -> Observable<ChatListSnapshot> in
+                guard let self else { return .just(pair.curr) }
+                if pair.prev?.conversationId != pair.curr.conversationId {
+                    // 会话切换时不节流，避免短暂显示上一个会话
+                    return .just(pair.curr)
+                }
+                return .just(pair.curr).throttle(
+                    .milliseconds(self.stateThrottleMilliseconds),
+                    latest: true,
+                    scheduler: MainScheduler.instance
+                )
+            }
             .distinctUntilChanged { [weak self] lhs, rhs in
                 self?.isSnapshotEqual(lhs, rhs) ?? false
             }

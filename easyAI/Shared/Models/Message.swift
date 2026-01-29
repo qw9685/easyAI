@@ -21,11 +21,11 @@ struct Message: Identifiable, Codable {
     var wasStreamed: Bool
     /// 媒体内容列表（图片、视频、音频、PDF等）
     var mediaContents: [MediaContent]
-    /// Phase4: 一轮对话的 turnId（用于稳定 identity 与日志关联）
+    /// phase: 一轮对话的 turnId（用于稳定 identity 与日志关联）
     let turnId: UUID?
-    /// Phase4: 稳定的 baseId（推荐：c:<conversationId>|t:<turnId>）
+    /// phase: 稳定的 baseId（推荐：c:<conversationId>|t:<turnId>）
     let baseId: String?
-    /// Phase4: 稳定的 itemId（推荐：<baseId>|k:<kind>|p:<part>）
+    /// phase: 稳定的 itemId（推荐：<baseId>|k:<kind>|p:<part>）
     let itemId: String?
 
     init(
