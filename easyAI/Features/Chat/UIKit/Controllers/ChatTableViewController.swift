@@ -13,13 +13,22 @@ import RxDataSources
 
 final class ChatTableViewController: UIViewController {
     private let tableView = UITableView(frame: .zero, style: .plain)
-    private var isUserAtBottom: Bool = true
+    private enum ScrollMode {
+        case pinnedToBottom
+        case reading
+    }
+    
+    private var scrollMode: ScrollMode = .pinnedToBottom
     private var currentMessages: [Message] = []
     private var currentIsLoading: Bool = false
     private var lastConversationId: String?
     private var disposeBag = DisposeBag()
     private weak var boundViewModel: ChatListViewModel?
     private var needsFlushAfterUserScroll: Bool = false
+    private var pendingNewMessageCount: Int = 0
+    private let newMessagesButton = UIButton(type: .system)
+    private var streamingFlushWorkItem: DispatchWorkItem?
+    private var lastPinnedContentHeight: CGFloat = 0
     
     private lazy var dataSource = ChatTableDataSourceFactory.make()
     private var latestSections: [ChatSection] = []
@@ -27,6 +36,7 @@ final class ChatTableViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupTableView()
+        setupNewMessagesButton()
     }
     
     func bind(viewModel: ChatListViewModel) {
@@ -91,26 +101,30 @@ final class ChatTableViewController: UIViewController {
     }
     
     private func applyState(_ state: ChatListState) {
+        streamingFlushWorkItem?.cancel()
         let conversationChanged = state.conversationId != lastConversationId
+        let previousCount = currentMessages.count
         currentMessages = state.messages
         currentIsLoading = state.isLoading
         lastConversationId = state.conversationId
         updateEmptyState()
         boundViewModel?.updateLastMessageCache(messages: state.messages)
         
-        let shouldAutoScroll = boundViewModel?.shouldAutoScroll(
-            currentOffset: tableView.contentOffset.y,
-            viewHeight: tableView.bounds.height,
-            contentHeight: tableView.contentSize.height
-        ) ?? isUserAtBottom
-        let shouldScroll = conversationChanged || shouldAutoScroll
+        let shouldScroll = conversationChanged || (scrollMode == .pinnedToBottom)
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            if shouldScroll {
-                self.scrollToBottom(animated: false)
+            if !shouldScroll && state.messages.count > previousCount {
+                self.pendingNewMessageCount += (state.messages.count - previousCount)
+                self.showNewMessagesButtonIfNeeded()
+            } else if shouldScroll {
+                self.hideNewMessagesButton()
             }
-            self.updateUserAtBottom()
+            
+            if shouldScroll {
+                self.scrollToBottomByOffset()
+            }
+            self.updateScrollModeFromCurrentPosition()
         }
     }
 
@@ -124,37 +138,22 @@ final class ChatTableViewController: UIViewController {
         guard let lastMessage = state.messages.last else { return }
         latestSections = state.sections
         dataSource.setSections(state.sections)
-        let shouldAutoScroll = boundViewModel?.shouldAutoScroll(
-            currentOffset: tableView.contentOffset.y,
-            viewHeight: tableView.bounds.height,
-            contentHeight: tableView.contentSize.height
-        ) ?? isUserAtBottom
+        let shouldAutoScroll = (scrollMode == .pinnedToBottom)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let row = state.messages.count - 1
-            guard row >= 0 else { return }
-            let indexPath = IndexPath(row: row, section: 0)
+            guard let indexPath = self.indexPathForLastMarkdownRow(in: state.sections) else { return }
 
             if self.tableView.isTracking || self.tableView.isDragging || self.tableView.isDecelerating {
                 self.needsFlushAfterUserScroll = true
-                if let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageCell {
+                if let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageMarkdownCell {
                     cell.configure(with: lastMessage)
                 }
+                self.pendingNewMessageCount += 1
+                self.showNewMessagesButtonIfNeeded()
                 return
             }
-
-            UIView.performWithoutAnimation {
-                self.tableView.reloadRows(at: [indexPath], with: .none)
-                self.tableView.beginUpdates()
-                self.tableView.endUpdates()
-                self.tableView.layoutIfNeeded()
-            }
-
-            if shouldAutoScroll {
-                self.scrollToBottomByOffset()
-            }
-            self.updateUserAtBottom()
+            self.scheduleStreamingFlush(indexPath: indexPath, shouldAutoScroll: shouldAutoScroll)
         }
     }
     
@@ -173,12 +172,40 @@ final class ChatTableViewController: UIViewController {
         tableView.scrollIndicatorInsets = UIEdgeInsets(top: 20, left: 0, bottom: 24, right: 0)
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 120
-        tableView.register(ChatMessageCell.self, forCellReuseIdentifier: ChatMessageCell.reuseIdentifier)
+        tableView.register(ChatMessageMarkdownCell.self, forCellReuseIdentifier: ChatMessageMarkdownCell.reuseIdentifier)
+        tableView.register(ChatMessageSendCell.self, forCellReuseIdentifier: ChatMessageSendCell.reuseIdentifier)
+        tableView.register(ChatMessageMediaCell.self, forCellReuseIdentifier: ChatMessageMediaCell.reuseIdentifier)
         tableView.register(ChatLoadingCell.self, forCellReuseIdentifier: ChatLoadingCell.reuseIdentifier)
         
         tableView.backgroundView = ChatEmptyStateView()
         updateEmptyState()
 
+        lastPinnedContentHeight = tableView.contentSize.height
+    }
+
+    private func setupNewMessagesButton() {
+        newMessagesButton.isHidden = true
+        newMessagesButton.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.95)
+        newMessagesButton.setTitleColor(.white, for: .normal)
+        newMessagesButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        newMessagesButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        newMessagesButton.layer.cornerRadius = 16
+        newMessagesButton.layer.masksToBounds = true
+        newMessagesButton.addTarget(self, action: #selector(didTapNewMessagesButton), for: .touchUpInside)
+        
+        view.addSubview(newMessagesButton)
+        newMessagesButton.snp.makeConstraints { make in
+            make.trailing.equalTo(view.safeAreaLayoutGuide.snp.trailing).inset(16)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).inset(12)
+        }
+    }
+    
+    @objc private func didTapNewMessagesButton() {
+        scrollMode = .pinnedToBottom
+        hideNewMessagesButton()
+        flushPendingStreamingLayoutIfNeeded()
+        scrollToBottomByOffset()
+        updateScrollModeFromCurrentPosition()
     }
     
     private func updateEmptyState() {
@@ -187,57 +214,70 @@ final class ChatTableViewController: UIViewController {
         tableView.backgroundView?.isHidden = !shouldShow
     }
     
-    private func scrollToBottom(animated: Bool) {
-        let totalRows = currentMessages.count + (currentIsLoading ? 1 : 0)
-        guard totalRows > 0 else { return }
-        let lastIndex = IndexPath(row: totalRows - 1, section: 0)
-        tableView.scrollToRow(at: lastIndex, at: .bottom, animated: animated)
-    }
-
-    private func updateUserAtBottom() {
+    private func updateScrollModeFromCurrentPosition() {
         let offset = tableView.contentOffset.y
         let height = tableView.bounds.height
         let contentHeight = tableView.contentSize.height
-        boundViewModel?.updateUserAtBottom(
+        let nearBottom = boundViewModel?.isNearBottom(
             currentOffset: offset,
             viewHeight: height,
             contentHeight: contentHeight
-        )
-        isUserAtBottom = boundViewModel?.isUserAtBottom ?? isUserAtBottom
+        ) ?? true
+        
+        if nearBottom {
+            scrollMode = .pinnedToBottom
+            hideNewMessagesButton()
+        } else if tableView.isDragging || tableView.isDecelerating || tableView.isTracking {
+            scrollMode = .reading
+        }
     }
 }
 
 extension ChatTableViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard let item = item(at: indexPath) else { return 0 }
+        switch item {
+        case .messageMarkdown(let message) where message.isStreaming && message.content.isEmpty:
+            return CGFloat.leastNonzeroMagnitude
+        default:
+            return UITableView.automaticDimension
+        }
+    }
+
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         guard let item = item(at: indexPath) else { return tableView.estimatedRowHeight }
         switch item {
         case .loading:
             return 35
-        case .message:
+        case .messageMedia:
+            return 220
+        case .messageMarkdown(let message) where message.isStreaming && message.content.isEmpty:
+            return 0
+        case .messageMarkdown:
+            return tableView.estimatedRowHeight
+        case .messageSend:
             return tableView.estimatedRowHeight
         }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let offsetY = scrollView.contentOffset.y
-        let height = scrollView.bounds.height
-        let contentHeight = scrollView.contentSize.height
-        boundViewModel?.updateUserAtBottom(
-            currentOffset: offsetY,
-            viewHeight: height,
-            contentHeight: contentHeight
-        )
-        isUserAtBottom = boundViewModel?.isUserAtBottom ?? isUserAtBottom
+        updateScrollModeFromCurrentPosition()
+    }
+    
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        scrollMode = .reading
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
             flushPendingStreamingLayoutIfNeeded()
+            updateScrollModeFromCurrentPosition()
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         flushPendingStreamingLayoutIfNeeded()
+        updateScrollModeFromCurrentPosition()
     }
 }
 
@@ -288,11 +328,7 @@ private extension ChatTableViewController {
         guard needsFlushAfterUserScroll else { return }
         needsFlushAfterUserScroll = false
 
-        let shouldAutoScroll = boundViewModel?.shouldAutoScroll(
-            currentOffset: tableView.contentOffset.y,
-            viewHeight: tableView.bounds.height,
-            contentHeight: tableView.contentSize.height
-        ) ?? isUserAtBottom
+        let shouldAutoScroll = (scrollMode == .pinnedToBottom)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -304,7 +340,70 @@ private extension ChatTableViewController {
             if shouldAutoScroll {
                 self.scrollToBottomByOffset()
             }
-            self.updateUserAtBottom()
+            self.updateScrollModeFromCurrentPosition()
         }
+    }
+
+    func scheduleStreamingFlush(indexPath: IndexPath, shouldAutoScroll: Bool) {
+        streamingFlushWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performStreamingFlush(indexPath: indexPath, shouldAutoScroll: shouldAutoScroll)
+        }
+        streamingFlushWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: workItem)
+    }
+
+    func performStreamingFlush(indexPath: IndexPath, shouldAutoScroll: Bool) {
+        if tableView.isTracking || tableView.isDragging || tableView.isDecelerating {
+            needsFlushAfterUserScroll = true
+            return
+        }
+
+        let wasPinned = (scrollMode == .pinnedToBottom)
+        let beforeHeight = tableView.contentSize.height
+
+        UIView.performWithoutAnimation {
+            tableView.reloadRows(at: [indexPath], with: .none)
+            tableView.beginUpdates()
+            tableView.endUpdates()
+            tableView.layoutIfNeeded()
+        }
+
+        if shouldAutoScroll && wasPinned {
+            let afterHeight = tableView.contentSize.height
+            let delta = afterHeight - max(lastPinnedContentHeight, beforeHeight)
+            if abs(delta) > 0.5 {
+                tableView.contentOffset.y += delta
+            }
+            scrollToBottomByOffset()
+            lastPinnedContentHeight = tableView.contentSize.height
+            hideNewMessagesButton()
+        } else {
+            pendingNewMessageCount += 1
+            showNewMessagesButtonIfNeeded()
+        }
+        updateScrollModeFromCurrentPosition()
+    }
+
+    func indexPathForLastMarkdownRow(in sections: [ChatSection]) -> IndexPath? {
+        guard let first = sections.first else { return nil }
+        for (idx, item) in first.items.enumerated().reversed() {
+            if case .messageMarkdown = item {
+                return IndexPath(row: idx, section: 0)
+            }
+        }
+        return nil
+    }
+
+    func showNewMessagesButtonIfNeeded() {
+        guard scrollMode == .reading, pendingNewMessageCount > 0 else { return }
+        let title = pendingNewMessageCount > 99 ? "99+ 新消息" : "\(pendingNewMessageCount) 新消息"
+        newMessagesButton.setTitle(title, for: .normal)
+        newMessagesButton.isHidden = false
+    }
+    
+    func hideNewMessagesButton() {
+        pendingNewMessageCount = 0
+        newMessagesButton.isHidden = true
     }
 }

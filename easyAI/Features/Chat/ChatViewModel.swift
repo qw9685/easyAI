@@ -97,10 +97,6 @@ class ChatViewModel: ObservableObject {
         self.modelRepository = modelRepository
         self.conversationRepository = conversationRepository
         self.messageRepository = messageRepository
-        self.messagesRelay.accept(messages)
-        self.isLoadingRelay.accept(isLoading)
-        self.currentConversationIdRelay.accept(currentConversationId)
-        self.isTypingAnimatingRelay.accept(isTypingAnimating)
         // 可以添加欢迎消息
         // messages.append(Message(content: "您好！我是AI助手，有什么可以帮助您的吗？", role: .assistant))
         bootstrapConversation()
@@ -322,7 +318,6 @@ class ChatViewModel: ObservableObject {
                     await MainActor.run {
                         if let messageIndex = messages.firstIndex(where: { $0.id == messageId }) {
                             messages[messageIndex].content = fullContent
-                            messagesRelay.accept(messages)
                         }
                     }
                     
@@ -333,6 +328,9 @@ class ChatViewModel: ObservableObject {
                 
                 // Stream 完成，标记为非 stream 消息，但保留 wasStreamed 标记，并结束打字机动画
                 await MainActor.run {
+                    // 先移除 loading，再让 message 进入非 streaming（会插入 timestamp 行）
+                    // 避免 UI 出现 “timestamp 已出现但 loading 仍存在” 的短暂中间态。
+                    isLoading = false
                     if let messageIndex = messages.firstIndex(where: { $0.id == messageId }) {
                         messages[messageIndex].isStreaming = false
                         messages[messageIndex].wasStreamed = true // 标记该消息曾经是 stream，避免重新触发打字机
@@ -340,7 +338,6 @@ class ChatViewModel: ObservableObject {
                         Task {
                             await updatePersistedMessage(updatedMessage)
                         }
-                        messagesRelay.accept(messages)
                     }
                     isTypingAnimating = false
                 }
@@ -368,6 +365,7 @@ class ChatViewModel: ObservableObject {
                 // UIKit 列表直接展示完整文本，不再依赖打字机动画
                 isTypingAnimating = false
                 appendMessage(assistantMessage)
+                isLoading = false
                 print("[ChatViewModel] 🤖 assistant message:", response)
                 logPhase4("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
                 currentTurnId = nil
@@ -388,11 +386,10 @@ class ChatViewModel: ObservableObject {
             )
             messages.append(errorMsg)
             isTypingAnimating = false
+            isLoading = false
             logPhase4("turn end | baseId=\(baseId) | reason=error | error=\(errorDesc)")
             currentTurnId = nil
         }
-        
-        isLoading = false
     }
     
     @MainActor
