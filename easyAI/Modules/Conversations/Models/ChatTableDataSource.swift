@@ -23,7 +23,8 @@ enum ChatTableDataSourceFactory {
                         withIdentifier: ChatMessageMarkdownCell.reuseIdentifier,
                         for: indexPath
                     ) as? ChatMessageMarkdownCell
-                    cell?.configure(with: message)
+                    let maxBubbleWidth = max(0, tableView.bounds.width - 32)
+                    cell?.configure(with: message, maxBubbleWidth: maxBubbleWidth)
                     return cell ?? UITableViewCell()
                 case .messageSend(let message):
                     let cell = tableView.dequeueReusableCell(

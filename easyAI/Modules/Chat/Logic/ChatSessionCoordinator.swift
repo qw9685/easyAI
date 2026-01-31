@@ -12,7 +12,6 @@ struct ChatSessionSnapshot {
     let messages: [Message]
     let conversationId: UUID
     let currentTurnId: UUID?
-    let animationStopToken: UUID?
 }
 
 protocol ChatSessionCoordinating {
@@ -28,8 +27,7 @@ struct ChatSessionCoordinator: ChatSessionCoordinating {
             currentConversationId: nil,
             messages: [],
             conversationId: UUID(),
-            currentTurnId: nil,
-            animationStopToken: nil
+            currentTurnId: nil
         )
     }
 
@@ -38,8 +36,7 @@ struct ChatSessionCoordinator: ChatSessionCoordinating {
             currentConversationId: nil,
             messages: [],
             conversationId: UUID(),
-            currentTurnId: nil,
-            animationStopToken: nil
+            currentTurnId: nil
         )
     }
 
@@ -48,8 +45,7 @@ struct ChatSessionCoordinator: ChatSessionCoordinating {
             currentConversationId: conversationId,
             messages: loadedMessages,
             conversationId: UUID(),
-            currentTurnId: nil,
-            animationStopToken: nil
+            currentTurnId: nil
         )
     }
 
@@ -58,8 +54,7 @@ struct ChatSessionCoordinator: ChatSessionCoordinating {
             currentConversationId: nil,
             messages: [],
             conversationId: UUID(),
-            currentTurnId: nil,
-            animationStopToken: UUID()
+            currentTurnId: nil
         )
     }
 }

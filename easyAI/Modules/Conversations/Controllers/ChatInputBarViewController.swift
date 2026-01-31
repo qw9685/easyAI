@@ -293,17 +293,12 @@ final class ChatInputBarViewController: UIViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateUI() }
             .store(in: &cancellables)
-
-        viewModel.$isTypingAnimating
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateUI() }
-            .store(in: &cancellables)
     }
 
     private func updateUI() {
         clearTextButton.isHidden = input.inputText.isEmpty
 
-        let isDisabled = input.isSendDisabled(isChatLoading: viewModel.isLoading, isTypingAnimating: viewModel.isTypingAnimating)
+        let isDisabled = input.isSendDisabled(isChatLoading: viewModel.isLoading)
         sendButton.isEnabled = !isDisabled
         sendButton.setImage(isDisabled ? sendDisabledImage : sendEnabledImage, for: .normal)
 

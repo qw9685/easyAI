@@ -9,7 +9,6 @@ import Foundation
 
 struct ChatSendMessageEnvironment {
     var ensureConversation: @MainActor () -> Bool
-    var setAnimationStopToken: @MainActor (UUID) -> Void
     var setCurrentTurnId: @MainActor (UUID?) -> Void
     var getSelectedModel: @MainActor () -> AIModel?
     var buildMessagesForRequest: @MainActor (_ currentUserMessage: Message) -> [Message]
@@ -21,7 +20,6 @@ struct ChatSendMessageEnvironment {
 
     var batchUpdate: @MainActor (_ updates: () -> Void) -> Void
     var setIsLoading: @MainActor (Bool) -> Void
-    var setIsTypingAnimating: @MainActor (Bool) -> Void
     var setErrorMessage: @MainActor (String?) -> Void
 }
 
@@ -51,8 +49,6 @@ final class ChatSendMessageUseCase {
         mediaContents: [MediaContent] = [],
         env: ChatSendMessageEnvironment
     ) async {
-        env.setAnimationStopToken(UUID())
-
         guard env.ensureConversation() else { return }
 
         var messageMediaContents = mediaContents
@@ -112,7 +108,6 @@ final class ChatSendMessageUseCase {
                     itemId: assistantMessageItemId
                 )
                 env.appendMessage(assistantMessage)
-                env.setIsTypingAnimating(true)
 
                 let messageId = assistantMessage.id
                 logger.phase("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString)")
@@ -140,7 +135,6 @@ final class ChatSendMessageUseCase {
                         let updated: Message? = await MainActor.run {
                             var updated: Message?
                             env.batchUpdate {
-                                env.setIsTypingAnimating(false)
                                 updated = env.finalizeStreamingMessage(messageId)
                             }
                             return updated
@@ -169,7 +163,6 @@ final class ChatSendMessageUseCase {
                 )
 
                 env.batchUpdate {
-                    env.setIsTypingAnimating(false)
                     env.setIsLoading(false)
                     env.appendMessage(assistantMessage)
                 }
@@ -186,7 +179,6 @@ final class ChatSendMessageUseCase {
                 let errorItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "error", part: "main")
                 let errorMsg = Message(content: errorContent, role: .assistant, turnId: turnId, baseId: baseId, itemId: errorItemId)
                 env.appendMessage(errorMsg)
-                env.setIsTypingAnimating(false)
                 env.setCurrentTurnId(nil)
             }
             logger.phase("turn end | baseId=\(baseId) | reason=error | error=\(errorDesc)")

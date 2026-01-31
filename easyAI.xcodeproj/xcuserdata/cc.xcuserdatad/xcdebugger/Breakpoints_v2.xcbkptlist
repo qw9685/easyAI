@@ -20,5 +20,51 @@
             landmarkType = "3">
          </BreakpointContent>
       </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "19FFBB16-2F40-4E68-ADBE-FA53FAFFA434"
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "easyAI/Modules/Conversations/Markdown/Views/MarkdownCodeBlockView.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "10"
+            endingLineNumber = "10"
+            landmarkName = "MarkdownCodeBlockView"
+            landmarkType = "3">
+            <Locations>
+               <Location
+                  uuid = "19FFBB16-2F40-4E68-ADBE-FA53FAFFA434 - 61e0baf52a3d92f5"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "easyAI.MarkdownCodeBlockView.__isolated_deallocating_deinit"
+                  moduleName = "easyAI.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/cc/Desktop/github/easyAI/easyAI/Modules/Conversations/Markdown/Views/MarkdownCodeBlockView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "0"
+                  endingLineNumber = "0">
+               </Location>
+               <Location
+                  uuid = "19FFBB16-2F40-4E68-ADBE-FA53FAFFA434 - 5cf890989d61a236"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "easyAI.MarkdownCodeBlockView.__deallocating_deinit"
+                  moduleName = "easyAI.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/cc/Desktop/github/easyAI/easyAI/Modules/Conversations/Markdown/Views/MarkdownCodeBlockView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "0"
+                  endingLineNumber = "0">
+               </Location>
+            </Locations>
+         </BreakpointContent>
+      </BreakpointProxy>
    </Breakpoints>
 </Bucket>

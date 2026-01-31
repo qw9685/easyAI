@@ -30,11 +30,11 @@ final class ChatInputViewModel: ObservableObject {
         !inputText.isEmpty
     }
 
-    func isSendDisabled(isChatLoading: Bool, isTypingAnimating: Bool) -> Bool {
+    func isSendDisabled(isChatLoading: Bool) -> Bool {
         let textIsEmpty = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let noImage = selectedImages.isEmpty
         let hasNoContent = textIsEmpty && noImage
-        return hasNoContent || isChatLoading || isTypingAnimating
+        return hasNoContent || isChatLoading
     }
 
     func clearText() {
@@ -65,7 +65,7 @@ final class ChatInputViewModel: ObservableObject {
     }
 
     func send(chatViewModel: ChatViewModel) {
-        guard !isSendDisabled(isChatLoading: chatViewModel.isLoading, isTypingAnimating: chatViewModel.isTypingAnimating) else {
+        guard !isSendDisabled(isChatLoading: chatViewModel.isLoading) else {
             return
         }
 

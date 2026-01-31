@@ -149,7 +149,8 @@ final class ChatTableViewController: UIViewController {
             if self.tableView.isTracking || self.tableView.isDragging || self.tableView.isDecelerating {
                 self.autoScroll.markNeedsFlushAfterUserScroll()
                 if let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageMarkdownCell {
-                    cell.configure(with: lastMessage)
+                    let maxBubbleWidth = max(0, self.tableView.bounds.width - 32)
+                    cell.applyStreamingText(lastMessage.content, maxBubbleWidth: maxBubbleWidth)
                 }
                 return
             }
@@ -314,6 +315,7 @@ private extension ChatTableViewController {
     }
 
     func performStreamingFlush(indexPath: IndexPath, shouldAutoScroll: Bool) {
+        guard let message = currentMessages.last, message.isStreaming else { return }
         if tableView.isTracking || tableView.isDragging || tableView.isDecelerating {
             autoScroll.markNeedsFlushAfterUserScroll()
             return
@@ -322,7 +324,13 @@ private extension ChatTableViewController {
         let beforeHeight = tableView.contentSize.height
 
         UIView.performWithoutAnimation {
-            tableView.reloadRows(at: [indexPath], with: .none)
+            if let cell = tableView.cellForRow(at: indexPath) as? ChatMessageMarkdownCell {
+                let maxBubbleWidth = max(0, tableView.bounds.width - 32)
+                cell.applyStreamingText(message.content, maxBubbleWidth: maxBubbleWidth)
+                cell.contentView.layoutIfNeeded()
+            } else {
+                tableView.reloadRows(at: [indexPath], with: .none)
+            }
             tableView.beginUpdates()
             tableView.endUpdates()
             tableView.layoutIfNeeded()

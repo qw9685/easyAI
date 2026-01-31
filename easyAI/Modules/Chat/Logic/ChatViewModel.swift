@@ -31,24 +31,16 @@ class ChatViewModel: ObservableObject {
             modelListState.selectedModel = newValue
         }
     }
-    /// 当前是否有助手回复的打字机动画在进行中（用于禁用再次发送）
-    @Published var isTypingAnimating: Bool = false {
-        didSet { }
-    }
-    /// 用于停止打字机动画的 token
-    @Published var animationStopToken: UUID = UUID()
     var availableModels: [AIModel] { modelListState.models }
     var isLoadingModels: Bool { modelListState.isLoading }
     @Published var conversations: [ConversationRecord] = []
     @Published private(set) var listSnapshot: ChatListSnapshot = .empty
     @Published private(set) var isSwitchingConversation: Bool = false
-    @Published private(set) var switchingConversationId: String?
     
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
     private var isBatchingSnapshot: Bool = false
     private var loadConversationsTask: Task<Void, Never>?
-    private var selectConversationTask: Task<Void, Never>?
     
     private let chatService: ChatServiceProtocol
     private let contextBuilder: ChatContextBuilding
@@ -115,8 +107,6 @@ class ChatViewModel: ObservableObject {
             turnIdFactory: self.turnIdFactory,
             logger: self.logger
         )
-        // 可以添加欢迎消息
-        // messages.append(Message(content: "您好！我是AI助手，有什么可以帮助您的吗？", role: .assistant))
         bootstrapConversation()
     }
     
@@ -127,49 +117,16 @@ class ChatViewModel: ObservableObject {
     func startNewConversation() {
         applySessionSnapshot(sessionCoordinator.startNewConversation())
     }
-    
-    func selectConversation(id: String) {
-        selectConversationTask?.cancel()
-        Task { @MainActor in
-            self.applySessionSnapshot(
-                self.sessionCoordinator.selectConversation(
-                    conversationId: id,
-                    loadedMessages: []
-                )
-            )
-        }
-
-        selectConversationTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let loadedMessages = try self.conversationCoordinator.fetchMessages(conversationId: id)
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    self.applySessionSnapshot(
-                        self.sessionCoordinator.selectConversation(
-                            conversationId: id,
-                            loadedMessages: loadedMessages
-                        )
-                    )
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                print("[ChatViewModel] ⚠️ Failed to load conversation: \(error)")
-            }
-        }
-    }
 
     /// 用于“会话列表点击后，等数据加载完再切换”的体验：不会短暂展示上一会话内容。
     func selectConversationAfterLoaded(id: String) async {
         await MainActor.run {
             isSwitchingConversation = true
-            switchingConversationId = id
         }
 
         defer {
             Task { @MainActor in
                 isSwitchingConversation = false
-                switchingConversationId = nil
             }
         }
 
@@ -264,7 +221,6 @@ class ChatViewModel: ObservableObject {
     func sendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) async {
         let env = ChatSendMessageEnvironment(
             ensureConversation: { self.ensureConversation() },
-            setAnimationStopToken: { self.animationStopToken = $0 },
             setCurrentTurnId: { self.currentTurnId = $0 },
             getSelectedModel: { self.selectedModel },
             buildMessagesForRequest: { self.buildMessagesForRequest(currentUserMessage: $0) },
@@ -278,7 +234,6 @@ class ChatViewModel: ObservableObject {
                 self.batchSnapshotUpdate(updates)
             },
             setIsLoading: { self.isLoading = $0 },
-            setIsTypingAnimating: { self.isTypingAnimating = $0 },
             setErrorMessage: { self.errorMessage = $0 }
         )
 
@@ -417,9 +372,6 @@ class ChatViewModel: ObservableObject {
             conversationId = snapshot.conversationId
             turnIdFactory.conversationId = snapshot.conversationId
             currentTurnId = snapshot.currentTurnId
-            if let token = snapshot.animationStopToken {
-                animationStopToken = token
-            }
         }
     }
 
