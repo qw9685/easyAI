@@ -2,6 +2,10 @@
 
 一个现代化 iOS AI 聊天应用，通过 OpenRouter API 支持多个主流 AI 模型，提供流畅的聊天体验（SwiftUI + UIKit 混合实现）。
 
+## 🎬 Demo
+
+![EasyAI Demo](assets/easyai-demo.gif)
+
 ## ✨ 功能特性
 
 - 🎨 **现代化界面** - 渐变背景、圆角气泡、流畅动画（SwiftUI + UIKit）
