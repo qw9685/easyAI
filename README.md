@@ -4,7 +4,7 @@
 
 ## 🎬 Demo
 
-![EasyAI Demo](assets/easyai-demo.gif)
+![EasyAI Demo](demo.gif)
 
 ## ✨ 功能特性
 
