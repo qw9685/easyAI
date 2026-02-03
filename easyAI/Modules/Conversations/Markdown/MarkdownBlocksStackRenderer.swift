@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 按顺序渲染 Markdown 块视图
+//
 //
 
 import UIKit

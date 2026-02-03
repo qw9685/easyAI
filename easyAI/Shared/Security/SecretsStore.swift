@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - Keychain 密钥读写
+//
 //
 
 import Foundation

@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 配置 RxDataSources 数据源与 cell
+//
 //
 
 import UIKit

@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - Markdown 块视图协议/基类
+//
 //
 
 import UIKit

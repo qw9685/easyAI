@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - Markdown 消息渲染 cell
+//
 //
 
 import UIKit

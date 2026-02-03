@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 列表快照数据结构
+//
 //
 
 import Foundation

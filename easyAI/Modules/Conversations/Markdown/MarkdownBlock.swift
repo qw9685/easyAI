@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - Markdown 块模型定义
+//
 //
 
 import Foundation

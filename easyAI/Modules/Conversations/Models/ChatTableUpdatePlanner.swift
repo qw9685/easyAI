@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 选择全量 diff 或流式局部刷新
+//
 //
 
 import Foundation

@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 列表 diff 使用的行/分区模型
+//
 //
 
 import Foundation

@@ -3,6 +3,9 @@
 //  easyAIUITests
 //
 //  创建于 2025/12/9
+//  主要功能：
+//  - 应用启动 UI 测试与截图基线
+//
 //
 
 import XCTest

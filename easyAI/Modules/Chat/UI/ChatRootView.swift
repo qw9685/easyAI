@@ -3,6 +3,10 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - SwiftUI 包装 UIKit 导航栈
+//  - 作为聊天根视图入口
+//
 //
 
 import SwiftUI

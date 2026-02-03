@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 加载中指示 cell
+//
 //
 
 import UIKit

@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 生成 turn/base/item 标识
+//
 //
 
 import Foundation

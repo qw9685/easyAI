@@ -3,6 +3,9 @@
 //  EasyAI
 //
 //  创建于 2026
+//  主要功能：
+//  - 模型列表状态结构
+//
 //
 
 import Foundation
