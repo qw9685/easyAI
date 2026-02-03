@@ -15,6 +15,8 @@ enum MarkdownBlockCategory {
     case list
     case quote
     case code
+    case divider
+    case table
 }
 
 enum MarkdownBlockKind {
@@ -23,6 +25,8 @@ enum MarkdownBlockKind {
     case list(ordered: Bool, startIndex: UInt, items: [NSAttributedString])
     case quote(blocks: [MarkdownBlock])
     case code(language: String?, text: NSAttributedString)
+    case thematicBreak
+    case table(headers: [NSAttributedString], rows: [[NSAttributedString]], alignments: [MarkdownTableAlignment])
 }
 
 struct MarkdownBlock {
@@ -39,7 +43,16 @@ struct MarkdownBlock {
             return .quote
         case .code:
             return .code
+        case .thematicBreak:
+            return .divider
+        case .table:
+            return .table
         }
     }
 }
 
+enum MarkdownTableAlignment: Equatable {
+    case left
+    case center
+    case right
+}

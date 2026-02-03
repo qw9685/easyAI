@@ -32,6 +32,7 @@ final class MarkdownBlocksStackRenderer {
                existingView.category == block.category {
                 existingView.onOpenURL = onOpenURL
                 existingView.update(block: block, style: style)
+                ensureFullWidth(view: existingView, in: stackView)
                 continue
             }
 
@@ -46,6 +47,7 @@ final class MarkdownBlocksStackRenderer {
             } else {
                 stackView.addArrangedSubview(newView)
             }
+            ensureFullWidth(view: newView, in: stackView)
         }
 
         // Ensure consistent vertical spacing independent of stackView.spacing.
@@ -55,5 +57,16 @@ final class MarkdownBlocksStackRenderer {
             let nextBlock = idx + 1 < blocks.count ? blocks[idx + 1] : nil
             stackView.setCustomSpacing(style.spacingAfterBlock(blocks[idx], next: nextBlock), after: view)
         }
+    }
+
+    private func ensureFullWidth(view: UIView, in stackView: UIStackView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        let existing = (stackView.constraints + view.constraints).filter { constraint in
+            (constraint.firstItem as? UIView) == view
+                && constraint.firstAttribute == .width
+        }
+        existing.forEach { $0.isActive = false }
+        let constraint = view.widthAnchor.constraint(equalTo: stackView.widthAnchor)
+        constraint.isActive = true
     }
 }

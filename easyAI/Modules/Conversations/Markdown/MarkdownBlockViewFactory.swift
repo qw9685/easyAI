@@ -25,6 +25,10 @@ struct MarkdownBlockViewFactory: MarkdownBlockViewMaking {
             return MarkdownListBlockView()
         case .quote:
             return MarkdownQuoteBlockView(viewFactory: self)
+        case .divider:
+            return MarkdownDividerBlockView()
+        case .table:
+            return MarkdownTableBlockView()
         }
     }
 }

@@ -88,12 +88,64 @@ struct MarkdownParser: MarkdownParsing {
                 continue
             }
 
+            if let table = node as? Table {
+                let alignments = table.columnAlignments.map { alignment -> MarkdownTableAlignment in
+                    switch alignment {
+                    case .center:
+                        return .center
+                    case .right:
+                        return .right
+                    default:
+                        return .left
+                    }
+                }
+                let headers = renderTableHeaders(table: table, style: style)
+                let rows = renderTableRows(table: table, style: style)
+                blocks.append(MarkdownBlock(kind: .table(headers: headers, rows: rows, alignments: alignments), index: index))
+                index += 1
+                continue
+            }
+
+            if node is ThematicBreak {
+                blocks.append(MarkdownBlock(kind: .thematicBreak, index: index))
+                index += 1
+                continue
+            }
+
             // Fallback: try to render children as paragraph.
             let attributed = renderMarkupAsInline(node, baseFont: style.bodyFont, style: style)
             appendTextBlock(.paragraph(text: attributed), to: &blocks, index: &index)
         }
 
         return blocks
+    }
+
+    private func renderTableHeaders(table: Table, style: MarkdownStyle) -> [NSAttributedString] {
+        guard let head = table.children.compactMap({ $0 as? Table.Head }).first else { return [] }
+        guard let firstRow = head.children.compactMap({ $0 as? Table.Row }).first else { return [] }
+        let cells = firstRow.children.compactMap { $0 as? Table.Cell }
+        return cells.map { renderTableCell($0, style: style, isHeader: true) }
+    }
+
+    private func renderTableRows(table: Table, style: MarkdownStyle) -> [[NSAttributedString]] {
+        guard let body = table.children.compactMap({ $0 as? Table.Body }).first else { return [] }
+        let rows = body.children.compactMap { $0 as? Table.Row }
+        return rows.map { row in
+            let cells = row.children.compactMap { $0 as? Table.Cell }
+            return cells.map { renderTableCell($0, style: style, isHeader: false) }
+        }
+    }
+
+    private func renderTableCell(_ cell: Table.Cell, style: MarkdownStyle, isHeader: Bool) -> NSAttributedString {
+        let baseFont = isHeader ? style.headingFont(level: 3) : style.bodyFont
+        let output = NSMutableAttributedString()
+        let base = baseAttributes(style: style, font: baseFont)
+
+        for child in cell.children {
+            appendInline(child, into: output, baseFont: baseFont, style: style, attributes: base)
+        }
+        applyBareLinksIfNeeded(to: output, linkColor: style.linkColor)
+        return output
     }
 
     private func appendTextBlock(_ kind: MarkdownBlockKind, to blocks: inout [MarkdownBlock], index: inout Int) {

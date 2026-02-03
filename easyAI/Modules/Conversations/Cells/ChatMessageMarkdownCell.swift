@@ -19,6 +19,7 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
     private let style = MarkdownStyle.default()
     private let stackRenderer = MarkdownBlocksStackRenderer()
     private var lastRenderedSignature: (length: Int, hash: Int)?
+    private var fullWidthConstraint: Constraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -63,6 +64,10 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
         bubbleContentView.addSubview(blocksStack)
         blocksStack.snp.makeConstraints { make in
             make.edges.equalToSuperview().inset(UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
+        }
+
+        bubbleContentView.snp.makeConstraints { make in
+            fullWidthConstraint = make.width.equalToSuperview().offset(-32).constraint
         }
     }
 

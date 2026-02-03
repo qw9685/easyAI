@@ -9,6 +9,7 @@
 //
 
 import UIKit
+import ImageIO
 import SnapKit
 import Kingfisher
 
@@ -86,22 +87,52 @@ final class ChatMessageMediaCell: ChatBaseBubbleCell {
 
         let spacing: CGFloat = 8
         let count = imageItems.count
-        let itemSize = count > 1 ? multiMediaSize : singleMediaSize
+        let itemSize = resolveItemSize(itemCount: count)
 
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
-            if layout.itemSize.width != itemSize || layout.itemSize.height != itemSize {
-                layout.itemSize = CGSize(width: itemSize, height: itemSize)
+            if layout.itemSize != itemSize {
+                layout.itemSize = itemSize
                 layout.invalidateLayout()
             }
         }
 
-        collectionHeightConstraint?.update(offset: itemSize)
+        collectionHeightConstraint?.update(offset: itemSize.height)
 
-        let contentWidth = itemSize * CGFloat(count) + spacing * CGFloat(max(0, count - 1))
+        let contentWidth = itemSize.width * CGFloat(count) + spacing * CGFloat(max(0, count - 1))
         let maxContentWidth = max(0, UIScreen.main.bounds.width - 32)
-        let visibleWidth = max(itemSize, min(contentWidth, maxContentWidth))
+        let visibleWidth = max(itemSize.width, min(contentWidth, maxContentWidth))
         collectionWidthConstraint?.update(offset: visibleWidth)
         collectionView.reloadData()
+    }
+
+    private func resolveItemSize(itemCount: Int) -> CGSize {
+        if itemCount > 1 {
+            return CGSize(width: multiMediaSize, height: multiMediaSize)
+        }
+
+        guard let first = imageItems.first,
+              let aspectRatio = imageAspectRatio(for: first) else {
+            return CGSize(width: singleMediaSize, height: singleMediaSize)
+        }
+
+        let maxHeight = UIScreen.main.bounds.height * 0.5
+        let rawHeight = singleMediaSize * aspectRatio
+        let height = min(maxHeight, max(singleMediaSize, rawHeight))
+        return CGSize(width: singleMediaSize, height: height)
+    }
+
+    private func imageAspectRatio(for media: MediaContent) -> CGFloat? {
+        let data = media.data as CFData
+        guard let source = CGImageSourceCreateWithData(data, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+              width > 0,
+              height > 0 else {
+            return nil
+        }
+
+        return height / width
     }
 
     private func setupViews() {
