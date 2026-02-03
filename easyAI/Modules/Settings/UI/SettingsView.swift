@@ -30,6 +30,28 @@ struct SettingsView: View {
                     
                     Toggle("启用流式响应", isOn: $configManager.enableStream)
 
+                    Toggle("启用打字机", isOn: $configManager.enableTypewriter)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("打字机速度")
+                            Spacer()
+                            Text(String(format: "%.1fx", configManager.typewriterSpeed))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $configManager.typewriterSpeed, in: 0.1...8.0, step: 0.1)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("打字机刷新率")
+                            Spacer()
+                            Text("\(Int(configManager.typewriterRefreshRate)) fps")
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $configManager.typewriterRefreshRate, in: 5...120, step: 5)
+                    }
+
                     Toggle("启用 phase 日志（turnId/itemId）", isOn: $configManager.enablephaseLogs)
 
                     Picker("上下文策略", selection: $configManager.contextStrategy) {

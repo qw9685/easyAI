@@ -78,11 +78,16 @@ final class ChatListViewModel: ObservableObject {
                     // 流式结束/开始需要立即刷新，避免 loading 闪现
                     return .just(pair.curr)
                 }
-                return .just(pair.curr).throttle(
-                    .milliseconds(self.stateThrottleMilliseconds),
-                    latest: true,
-                    scheduler: MainScheduler.instance
-                )
+                if AppConfig.enableTypewriter,
+                   let prevLast = pair.prev?.messages.last,
+                   let currLast = pair.curr.messages.last,
+                   prevLast.isStreaming,
+                   currLast.isStreaming,
+                   prevLast.content != currLast.content {
+                    // 打字机期间需要更高刷新频率，避免节流导致的“卡住后一次性显示”
+                    return .just(pair.curr)
+                }
+                return .just(pair.curr)
             }
             .distinctUntilChanged { [weak self] lhs, rhs in
                 self?.isSnapshotEqual(lhs, rhs) ?? false

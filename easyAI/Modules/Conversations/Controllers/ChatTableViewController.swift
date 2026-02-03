@@ -22,7 +22,11 @@ final class ChatTableViewController: UIViewController {
     private var lastConversationId: String?
     private var disposeBag = DisposeBag()
     private weak var boundViewModel: ChatListViewModel?
-    private var streamingFlushWorkItem: DispatchWorkItem?
+    private var streamingDisplayLink: CADisplayLink?
+    private var pendingStreamingIndexPath: IndexPath?
+    private var pendingStreamingAutoScroll: Bool = false
+    private var lastStreamingFlushTime: CFTimeInterval = 0
+    private var lastStreamingRefreshRate: Double = 0
     private let autoScroll = ChatAutoScrollController()
     
     private lazy var dataSource = ChatTableDataSourceFactory.make()
@@ -32,6 +36,11 @@ final class ChatTableViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupTableView()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        stopStreamingDisplayLink()
     }
 
     /// 键盘/输入栏导致布局变化时，如果当前处于“黏底”状态，则保持滚动在最底部。
@@ -93,7 +102,8 @@ final class ChatTableViewController: UIViewController {
     }
     
     private func applyState(_ state: ChatListState) {
-        streamingFlushWorkItem?.cancel()
+        pendingStreamingIndexPath = nil
+        pendingStreamingAutoScroll = false
         let conversationChanged = state.conversationId != lastConversationId
         let loadingChanged = state.isLoading != currentIsLoading
         let previousCount = currentMessages.count
@@ -101,6 +111,7 @@ final class ChatTableViewController: UIViewController {
         currentIsLoading = state.isLoading
         lastConversationId = state.conversationId
         updateEmptyState()
+        updateStreamingDisplayLinkIfNeeded()
         if conversationChanged {
             latestSections = state.sections
             dataSource.setSections(state.sections)
@@ -152,6 +163,7 @@ final class ChatTableViewController: UIViewController {
         currentIsLoading = state.isLoading
         lastConversationId = state.conversationId
         updateEmptyState()
+        updateStreamingDisplayLinkIfNeeded()
 
         guard let lastMessage = state.messages.last else { return }
         latestSections = state.sections
@@ -321,12 +333,9 @@ private extension ChatTableViewController {
     }
 
     func scheduleStreamingFlush(indexPath: IndexPath, shouldAutoScroll: Bool) {
-        streamingFlushWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.performStreamingFlush(indexPath: indexPath, shouldAutoScroll: shouldAutoScroll)
-        }
-        streamingFlushWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: workItem)
+        pendingStreamingIndexPath = indexPath
+        pendingStreamingAutoScroll = shouldAutoScroll
+        startStreamingDisplayLinkIfNeeded()
     }
 
     func performStreamingFlush(indexPath: IndexPath, shouldAutoScroll: Bool) {
@@ -377,5 +386,69 @@ private extension ChatTableViewController {
             viewHeight: tableView.bounds.height,
             contentHeight: tableView.contentSize.height
         ) ?? true
+    }
+
+    func updateStreamingDisplayLinkIfNeeded() {
+        let shouldRun = currentIsLoading
+            && currentMessages.last?.isStreaming == true
+            && AppConfig.enableTypewriter
+        if shouldRun {
+            startStreamingDisplayLinkIfNeeded()
+        } else {
+            stopStreamingDisplayLink()
+        }
+    }
+
+    func startStreamingDisplayLinkIfNeeded() {
+        guard streamingDisplayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(handleStreamingDisplayLink(_:)))
+        let preferred = Int(AppConfig.typewriterRefreshRate)
+        if #available(iOS 15.0, *) {
+            link.preferredFrameRateRange = CAFrameRateRange(
+                minimum: 10,
+                maximum: 120,
+                preferred: Float(preferred)
+            )
+        } else {
+            link.preferredFramesPerSecond = preferred
+        }
+        link.add(to: .main, forMode: .common)
+        streamingDisplayLink = link
+        lastStreamingRefreshRate = AppConfig.typewriterRefreshRate
+    }
+
+    func stopStreamingDisplayLink() {
+        streamingDisplayLink?.invalidate()
+        streamingDisplayLink = nil
+        lastStreamingFlushTime = 0
+        lastStreamingRefreshRate = 0
+    }
+
+    @objc func handleStreamingDisplayLink(_ link: CADisplayLink) {
+        guard let indexPath = pendingStreamingIndexPath else { return }
+        if tableView.isTracking || tableView.isDragging || tableView.isDecelerating {
+            return
+        }
+        if lastStreamingRefreshRate != AppConfig.typewriterRefreshRate {
+            let preferred = Int(AppConfig.typewriterRefreshRate)
+            if #available(iOS 15.0, *) {
+                link.preferredFrameRateRange = CAFrameRateRange(
+                    minimum: 10,
+                    maximum: 120,
+                    preferred: Float(preferred)
+                )
+            } else {
+                link.preferredFramesPerSecond = preferred
+            }
+            lastStreamingRefreshRate = AppConfig.typewriterRefreshRate
+        }
+        let now = link.timestamp
+        let rate = max(5, min(120, AppConfig.typewriterRefreshRate))
+        if now - lastStreamingFlushTime < (1.0 / rate) { return }
+        lastStreamingFlushTime = now
+        let shouldAutoScroll = pendingStreamingAutoScroll
+        pendingStreamingIndexPath = nil
+        pendingStreamingAutoScroll = false
+        performStreamingFlush(indexPath: indexPath, shouldAutoScroll: shouldAutoScroll)
     }
 }

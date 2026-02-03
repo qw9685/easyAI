@@ -20,6 +20,9 @@ class ConfigManager: ObservableObject {
     // MARK: - UserDefaults 键
     private let useMockDataKey = "Config.useMockData"
     private let enableStreamKey = "Config.enableStream"
+    private let enableTypewriterKey = "Config.enableTypewriter"
+    private let typewriterSpeedKey = "Config.typewriterSpeed"
+    private let typewriterRefreshRateKey = "Config.typewriterRefreshRate"
     private let maxTokensKey = "Config.maxTokens"
     private let enablephaseLogsKey = "Config.enablephaseLogs"
     private let contextStrategyKey = "Config.contextStrategy"
@@ -36,6 +39,24 @@ class ConfigManager: ObservableObject {
     @Published var enableStream: Bool {
         didSet {
             UserDefaults.standard.set(enableStream, forKey: enableStreamKey)
+        }
+    }
+
+    @Published var enableTypewriter: Bool {
+        didSet {
+            UserDefaults.standard.set(enableTypewriter, forKey: enableTypewriterKey)
+        }
+    }
+
+    @Published var typewriterSpeed: Double {
+        didSet {
+            UserDefaults.standard.set(typewriterSpeed, forKey: typewriterSpeedKey)
+        }
+    }
+
+    @Published var typewriterRefreshRate: Double {
+        didSet {
+            UserDefaults.standard.set(typewriterRefreshRate, forKey: typewriterRefreshRateKey)
         }
     }
     
@@ -77,6 +98,11 @@ class ConfigManager: ObservableObject {
         // 从 UserDefaults 读取配置，如果没有则使用默认值
         self.useMockData = UserDefaults.standard.object(forKey: useMockDataKey) as? Bool ?? false
         self.enableStream = UserDefaults.standard.object(forKey: enableStreamKey) as? Bool ?? true
+        self.enableTypewriter = UserDefaults.standard.object(forKey: enableTypewriterKey) as? Bool ?? true
+        let storedSpeed = UserDefaults.standard.object(forKey: typewriterSpeedKey) as? Double ?? 1.0
+        self.typewriterSpeed = max(0.1, min(8.0, storedSpeed))
+        let storedRate = UserDefaults.standard.object(forKey: typewriterRefreshRateKey) as? Double ?? 30
+        self.typewriterRefreshRate = max(5, min(120, storedRate))
         self.maxTokens = UserDefaults.standard.object(forKey: maxTokensKey) as? Int ?? 1000
 #if DEBUG
         let defaultEnablephaseLogs = true
@@ -103,6 +129,21 @@ extension AppConfig {
     static var enableStream: Bool {
         get { ConfigManager.shared.enableStream }
         set { ConfigManager.shared.enableStream = newValue }
+    }
+
+    static var enableTypewriter: Bool {
+        get { ConfigManager.shared.enableTypewriter }
+        set { ConfigManager.shared.enableTypewriter = newValue }
+    }
+
+    static var typewriterSpeed: Double {
+        get { ConfigManager.shared.typewriterSpeed }
+        set { ConfigManager.shared.typewriterSpeed = newValue }
+    }
+
+    static var typewriterRefreshRate: Double {
+        get { ConfigManager.shared.typewriterRefreshRate }
+        set { ConfigManager.shared.typewriterRefreshRate = newValue }
     }
     
     /// 最大 token 数（从 ConfigManager 读取）
