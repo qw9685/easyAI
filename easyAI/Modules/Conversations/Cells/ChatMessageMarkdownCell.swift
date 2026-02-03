@@ -39,21 +39,19 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
         }
     }
     
-    func configure(with message: Message, maxBubbleWidth: CGFloat) {
-        _ = maxBubbleWidth
+    func configure(with message: Message) {
         configureBase(message: message)
         
         setBubbleHidden(message.content.isEmpty)
         blocksStack.isHidden = message.content.isEmpty
-        applyMarkdownText(message.content, isStreaming: message.isStreaming)
+        applyMarkdownText(message.content)
     }
 
     /// 流式更新：只刷新正文，避免额外的 bubble/timestamp 逻辑和布局抖动。
-    func applyStreamingText(_ text: String, maxBubbleWidth: CGFloat) {
-        _ = maxBubbleWidth
+    func applyStreamingText(_ text: String) {
         setBubbleHidden(text.isEmpty)
         blocksStack.isHidden = text.isEmpty
-        applyMarkdownText(text, isStreaming: true)
+        applyMarkdownText(text)
     }
     
     private func setupViews() {
@@ -68,7 +66,7 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
         }
     }
 
-    private func applyMarkdownText(_ text: String, isStreaming: Bool) {
+    private func applyMarkdownText(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             lastRenderedSignature = nil

@@ -165,8 +165,7 @@ final class ChatTableViewController: UIViewController {
             if self.tableView.isTracking || self.tableView.isDragging || self.tableView.isDecelerating {
                 self.autoScroll.markNeedsFlushAfterUserScroll()
                 if let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageMarkdownCell {
-                    let maxBubbleWidth = max(0, self.tableView.bounds.width - 32)
-                    cell.applyStreamingText(lastMessage.content, maxBubbleWidth: maxBubbleWidth)
+                    cell.applyStreamingText(lastMessage.content)
                 }
                 return
             }
@@ -341,8 +340,7 @@ private extension ChatTableViewController {
 
         UIView.performWithoutAnimation {
             if let cell = tableView.cellForRow(at: indexPath) as? ChatMessageMarkdownCell {
-                let maxBubbleWidth = max(0, tableView.bounds.width - 32)
-                cell.applyStreamingText(message.content, maxBubbleWidth: maxBubbleWidth)
+                cell.applyStreamingText(message.content)
                 cell.contentView.layoutIfNeeded()
             } else {
                 tableView.reloadRows(at: [indexPath], with: .none)
