@@ -21,6 +21,7 @@ enum ChatRowBuilder {
         for message in messages {
             if !message.mediaContents.isEmpty {
                 items.append(.messageMedia(message))
+                continue
             }
 
             if message.role == .user {

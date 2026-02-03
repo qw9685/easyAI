@@ -95,6 +95,7 @@ final class ChatTableViewController: UIViewController {
     private func applyState(_ state: ChatListState) {
         streamingFlushWorkItem?.cancel()
         let conversationChanged = state.conversationId != lastConversationId
+        let loadingChanged = state.isLoading != currentIsLoading
         let previousCount = currentMessages.count
         currentMessages = state.messages
         currentIsLoading = state.isLoading
@@ -108,6 +109,13 @@ final class ChatTableViewController: UIViewController {
                 tableView.layoutIfNeeded()
             }
             autoScroll.recordPinnedContentHeight(tableView.contentSize.height)
+        } else if loadingChanged {
+            latestSections = state.sections
+            dataSource.setSections(state.sections)
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+                tableView.layoutIfNeeded()
+            }
         } else {
             sectionsRelay.accept(state.sections)
         }
@@ -136,6 +144,10 @@ final class ChatTableViewController: UIViewController {
     }
 
     private func applyStreamingState(_ state: ChatListState) {
+        guard state.isLoading, state.messages.last?.isStreaming == true else {
+            applyState(state)
+            return
+        }
         currentMessages = state.messages
         currentIsLoading = state.isLoading
         lastConversationId = state.conversationId
@@ -319,7 +331,7 @@ private extension ChatTableViewController {
     }
 
     func performStreamingFlush(indexPath: IndexPath, shouldAutoScroll: Bool) {
-        guard let message = currentMessages.last, message.isStreaming else { return }
+        guard currentIsLoading, let message = currentMessages.last, message.isStreaming else { return }
         if tableView.isTracking || tableView.isDragging || tableView.isDecelerating {
             autoScroll.markNeedsFlushAfterUserScroll()
             return

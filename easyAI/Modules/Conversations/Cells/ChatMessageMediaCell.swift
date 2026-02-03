@@ -21,6 +21,10 @@ final class ChatMessageMediaCell: ChatBaseBubbleCell {
     private var collectionWidthConstraint: Constraint?
     private var collectionHeightConstraint: Constraint?
 
+    private let contentStack = UIStackView()
+    private let textContainer = UIView()
+    private let messageLabel = UILabel()
+
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
@@ -56,6 +60,9 @@ final class ChatMessageMediaCell: ChatBaseBubbleCell {
         super.prepareForReuse()
         imageItems = []
         bubbleView.isHidden = true
+        messageLabel.text = nil
+        messageLabel.isHidden = true
+        textContainer.isHidden = true
         collectionView.setContentOffset(.zero, animated: false)
         collectionView.reloadData()
         collectionWidthConstraint?.update(offset: singleMediaSize)
@@ -65,8 +72,17 @@ final class ChatMessageMediaCell: ChatBaseBubbleCell {
     func configure(with message: Message) {
         configureBase(message: message)
         imageItems = message.mediaContents.filter { $0.type == .image }
-        setBubbleHidden(imageItems.isEmpty)
-        bubbleView.isHidden = true
+        let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasText = !trimmed.isEmpty
+
+        setBubbleHidden(imageItems.isEmpty && !hasText)
+        bubbleView.isHidden = !hasText
+        textContainer.isHidden = !hasText
+        messageLabel.isHidden = !hasText
+        messageLabel.text = message.content
+        messageLabel.textAlignment = message.role == .user ? .right : .left
+        messageLabel.textColor = message.role == .user ? .white : .label
+        contentStack.alignment = message.role == .user ? .trailing : .leading
 
         let spacing: CGFloat = 8
         let count = imageItems.count
@@ -89,13 +105,30 @@ final class ChatMessageMediaCell: ChatBaseBubbleCell {
     }
 
     private func setupViews() {
-        bubbleContentView.addSubview(collectionView)
+        contentStack.axis = .vertical
+        contentStack.spacing = 8
+        contentStack.alignment = .leading
+
+        bubbleContentView.addSubview(contentStack)
+        contentStack.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+
+        contentStack.addArrangedSubview(collectionView)
         collectionView.snp.makeConstraints { make in
-            make.top.leading.equalToSuperview()
             collectionHeightConstraint = make.height.equalTo(singleMediaSize).constraint
-            make.bottom.trailing.equalToSuperview()
             collectionWidthConstraint = make.width.equalTo(singleMediaSize).priority(.required).constraint
         }
+
+        messageLabel.numberOfLines = 0
+        messageLabel.lineBreakMode = .byCharWrapping
+        messageLabel.font = UIFont.preferredFont(forTextStyle: .body)
+
+        textContainer.addSubview(messageLabel)
+        messageLabel.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
+        }
+        contentStack.addArrangedSubview(textContainer)
     }
 }
 

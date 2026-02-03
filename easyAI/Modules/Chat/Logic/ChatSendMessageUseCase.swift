@@ -129,24 +129,18 @@ final class ChatSendMessageUseCase {
                     }
                 )
 
-                // 规则：流式期间有 loading；结束时先去掉 loading，再显示 timestamp。
-                env.batchUpdate {
-                    env.setIsLoading(false)
-                }
-                DispatchQueue.main.async {
-                    Task {
-                        // 第二步：先显示 timestamp（isStreaming=false）并结束输入禁用，然后再持久化更新。
-                        let updated: Message? = await MainActor.run {
-                            var updated: Message?
-                            env.batchUpdate {
-                                updated = env.finalizeStreamingMessage(messageId)
-                            }
-                            return updated
-                        }
-                        if let updated {
-                            await env.updatePersistedMessage(updated)
-                        }
+                // 规则：流式结束时在同一帧内移除 loading 并显示时间戳，避免短暂不一致。
+                let updated: Message? = await MainActor.run {
+                    var updated: Message?
+                    env.batchUpdate {
+                        env.setIsLoading(false)
+                        updated = env.finalizeStreamingMessage(messageId)
                     }
+                    return updated
+                }
+
+                if let updated {
+                    await env.updatePersistedMessage(updated)
                 }
 
                 logger.phase(

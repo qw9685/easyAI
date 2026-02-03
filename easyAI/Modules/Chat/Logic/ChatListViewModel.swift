@@ -68,6 +68,16 @@ final class ChatListViewModel: ObservableObject {
                     // 会话切换时不节流，避免短暂显示上一个会话
                     return .just(pair.curr)
                 }
+                if pair.prev?.isLoading != pair.curr.isLoading {
+                    // loading 状态变化需要立即刷新，避免短暂覆盖/滞后
+                    return .just(pair.curr)
+                }
+                if let prevLast = pair.prev?.messages.last,
+                   let currLast = pair.curr.messages.last,
+                   prevLast.isStreaming != currLast.isStreaming {
+                    // 流式结束/开始需要立即刷新，避免 loading 闪现
+                    return .just(pair.curr)
+                }
                 return .just(pair.curr).throttle(
                     .milliseconds(self.stateThrottleMilliseconds),
                     latest: true,
