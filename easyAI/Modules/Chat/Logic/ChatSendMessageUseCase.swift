@@ -324,7 +324,7 @@ private final class ChatTypewriter {
             targetText = text
             if displayText.count > text.count {
                 displayText = text
-                updateDisplay(displayText)
+                updateDisplay(safeDisplayText(displayText, isFinal: false))
             }
         }
     }
@@ -344,8 +344,9 @@ private extension ChatTypewriter {
         while !Task.isCancelled {
             if displayText.count < targetText.count {
                 displayText = nextDisplayText(current: displayText, target: targetText)
-                updateDisplay(displayText)
+                updateDisplay(safeDisplayText(displayText, isFinal: false))
             } else if streamEnded {
+                updateDisplay(safeDisplayText(targetText, isFinal: true))
                 onFinish()
                 task = nil
                 return
@@ -402,6 +403,47 @@ private extension ChatTypewriter {
     func currentTickInterval() -> TimeInterval {
         let speed = max(0.1, min(8.0, AppConfig.typewriterSpeed))
         return max(0.02, 0.08 / speed)
+    }
+
+    func safeDisplayText(_ text: String, isFinal: Bool) -> String {
+        guard !isFinal else { return text }
+
+        var output = text
+        while true {
+            let trimmed = trimmedTrailingWhitespace(output)
+            if trimmed.isEmpty { return output }
+
+            var removeCount = 0
+            if trimmed.hasSuffix("![") { removeCount = 2 }
+            else if trimmed.hasSuffix("](") { removeCount = 2 }
+            else if trimmed.hasSuffix("[") { removeCount = 1 }
+            else if trimmed.hasSuffix("***") { removeCount = 3 }
+            else if trimmed.hasSuffix("**") { removeCount = 2 }
+            else if trimmed.hasSuffix("*") { removeCount = 1 }
+            else if trimmed.hasSuffix("__") { removeCount = 2 }
+            else if trimmed.hasSuffix("_") { removeCount = 1 }
+            else if trimmed.hasSuffix("~~") { removeCount = 2 }
+            else if trimmed.hasSuffix("~") { removeCount = 1 }
+            else if trimmed.hasSuffix("`") { removeCount = 1 }
+
+            if removeCount == 0 { break }
+            let newLength = max(0, trimmed.count - removeCount)
+            output = String(trimmed.prefix(newLength))
+        }
+        return output
+    }
+
+    func trimmedTrailingWhitespace(_ text: String) -> String {
+        var end = text.endIndex
+        while end > text.startIndex {
+            let prev = text.index(before: end)
+            if text[prev].isWhitespace {
+                end = prev
+            } else {
+                break
+            }
+        }
+        return String(text[..<end])
     }
 
     func tableRanges(in text: String) -> [(start: Int, end: Int)] {

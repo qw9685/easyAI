@@ -17,6 +17,8 @@ enum MarkdownBlockCategory {
     case code
     case divider
     case table
+    case image
+    case html
 }
 
 enum MarkdownBlockKind {
@@ -27,6 +29,9 @@ enum MarkdownBlockKind {
     case code(language: String?, text: NSAttributedString)
     case thematicBreak
     case table(headers: [NSAttributedString], rows: [[NSAttributedString]], alignments: [MarkdownTableAlignment])
+    case image(url: URL, altText: String?)
+    case html(raw: String)
+    case math(latex: String)
 }
 
 struct MarkdownBlock {
@@ -47,6 +52,10 @@ struct MarkdownBlock {
             return .divider
         case .table:
             return .table
+        case .image:
+            return .image
+        case .html, .math:
+            return .html
         }
     }
 }

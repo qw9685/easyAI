@@ -32,6 +32,16 @@ struct MarkdownParser: MarkdownParsing {
 
         for node in nodes {
             if let paragraph = node as? Paragraph {
+                if let imageBlock = extractImageBlock(from: paragraph) {
+                    blocks.append(MarkdownBlock(kind: .image(url: imageBlock.url, altText: imageBlock.altText), index: index))
+                    index += 1
+                    continue
+                }
+                if let latex = extractMathBlock(from: paragraph) {
+                    blocks.append(MarkdownBlock(kind: .math(latex: latex), index: index))
+                    index += 1
+                    continue
+                }
                 let attributed = renderInlineContainer(paragraph, baseFont: style.bodyFont, style: style)
                 appendTextBlock(.paragraph(text: attributed), to: &blocks, index: &index)
                 continue
@@ -104,6 +114,15 @@ struct MarkdownParser: MarkdownParsing {
                 blocks.append(MarkdownBlock(kind: .table(headers: headers, rows: rows, alignments: alignments), index: index))
                 index += 1
                 continue
+            }
+
+            if let html = node as? HTMLBlock {
+                let raw = html.rawHTML
+                if !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(MarkdownBlock(kind: .html(raw: raw), index: index))
+                    index += 1
+                    continue
+                }
             }
 
             if node is ThematicBreak {
@@ -239,6 +258,16 @@ struct MarkdownParser: MarkdownParsing {
         style: MarkdownStyle,
         attributes: [NSAttributedString.Key: Any]
     ) {
+        if let htmlInline = markup as? InlineHTML {
+            let raw = htmlInline.rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let latex = extractInlineMath(from: raw) {
+                appendInlineMath(latex, into: output, baseFont: baseFont, style: style, attributes: attributes)
+                return
+            }
+            output.append(NSAttributedString(string: raw, attributes: attributes))
+            return
+        }
+
         if let text = markup as? Text {
             output.append(NSAttributedString(string: text.string, attributes: attributes))
             return
@@ -374,5 +403,51 @@ struct MarkdownParser: MarkdownParsing {
             attributed.addAttribute(.foregroundColor, value: linkColor, range: range)
             attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
         }
+    }
+}
+
+private extension MarkdownParser {
+    func extractImageBlock(from paragraph: Paragraph) -> (url: URL, altText: String?)? {
+        guard paragraph.childCount == 1, let child = paragraph.child(at: 0) else { return nil }
+        guard let image = child as? Image else { return nil }
+        guard let source = image.source, let url = URL(string: source) else { return nil }
+        let alt = (image as? PlainTextConvertibleMarkup)?.plainText
+        return (url: url, altText: alt)
+    }
+
+    func extractMathBlock(from paragraph: Paragraph) -> String? {
+        let attributed = renderInlineContainer(paragraph, baseFont: UIFont.preferredFont(forTextStyle: .body), style: .default())
+        let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("$$"), text.hasSuffix("$$"), text.count > 4 else { return nil }
+        let start = text.index(text.startIndex, offsetBy: 2)
+        let end = text.index(text.endIndex, offsetBy: -2)
+        let latex = String(text[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !latex.isEmpty else { return nil }
+        return latex
+    }
+
+    func extractInlineMath(from rawHTML: String) -> String? {
+        guard rawHTML.hasPrefix("$"), rawHTML.hasSuffix("$"), rawHTML.count > 2 else { return nil }
+        guard !rawHTML.hasPrefix("$$") else { return nil }
+        let start = rawHTML.index(rawHTML.startIndex, offsetBy: 1)
+        let end = rawHTML.index(rawHTML.endIndex, offsetBy: -1)
+        let latex = String(rawHTML[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return latex.isEmpty ? nil : latex
+    }
+
+    func appendInlineMath(
+        _ latex: String,
+        into output: NSMutableAttributedString,
+        baseFont: UIFont,
+        style: MarkdownStyle,
+        attributes: [NSAttributedString.Key: Any]
+    ) {
+        let placeholder = "\u{FFFC}"
+        let attachment = NSTextAttachment()
+        attachment.bounds = CGRect(x: 0, y: -2, width: baseFont.pointSize * 1.2, height: baseFont.pointSize * 1.2)
+        let mutable = NSMutableAttributedString(string: placeholder)
+        mutable.addAttribute(.attachment, value: attachment, range: NSRange(location: 0, length: 1))
+        mutable.addAttribute(.link, value: "math:\(latex)", range: NSRange(location: 0, length: 1))
+        output.append(mutable)
     }
 }

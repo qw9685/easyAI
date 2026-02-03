@@ -29,6 +29,10 @@ struct MarkdownBlockViewFactory: MarkdownBlockViewMaking {
             return MarkdownDividerBlockView()
         case .table:
             return MarkdownTableBlockView()
+        case .image:
+            return MarkdownImageBlockView()
+        case .html:
+            return MarkdownHTMLBlockView()
         }
     }
 }
