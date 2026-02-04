@@ -220,6 +220,17 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
+
+    func deleteMessage(id: UUID) {
+        messages.removeAll { $0.id == id }
+        Task {
+            do {
+                try conversationCoordinator.deleteMessage(id: id.uuidString)
+            } catch {
+                print("[ChatViewModel] ⚠️ Failed to delete message: \(error)")
+            }
+        }
+    }
     
     @MainActor
     func sendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) async {

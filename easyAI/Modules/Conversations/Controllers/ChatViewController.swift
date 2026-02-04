@@ -100,7 +100,12 @@ final class ChatViewController: UIViewController {
     private func bindViewModel() {
         listViewModel.bind(container: viewModel)
         tableViewController.bind(viewModel: listViewModel)
-        
+        tableViewController.onDeleteMessage = { [weak self] message in
+            self?.viewModel.deleteMessage(id: message.id)
+        }
+        tableViewController.onSelectText = { [weak self] message in
+            self?.presentTextSelection(for: message)
+        }
     }
 
     @objc private func didTapBackgroundToDismissKeyboard() {
@@ -146,6 +151,15 @@ final class ChatViewController: UIViewController {
                 await viewModel.loadModels()
             }
         }
+    }
+
+    private func presentTextSelection(for message: Message) {
+        let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let controller = ChatTextSelectionViewController(text: message.content)
+        let nav = UINavigationController(rootViewController: controller)
+        nav.modalPresentationStyle = .pageSheet
+        present(nav, animated: true)
     }
     
     @objc private func showSettings() {

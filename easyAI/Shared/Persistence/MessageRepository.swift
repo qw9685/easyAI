@@ -60,6 +60,13 @@ final class MessageRepository {
                             where: MessageRecord.Properties.conversationId == conversationId)
     }
 
+    func deleteMessage(id: String) throws {
+        try database.delete(
+            fromTable: WCDBTables.message,
+            where: MessageRecord.Properties.id == id
+        )
+    }
+
     func deleteAll() throws {
         try database.delete(fromTable: WCDBTables.message)
     }

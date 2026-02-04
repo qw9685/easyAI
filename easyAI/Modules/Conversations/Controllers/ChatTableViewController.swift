@@ -22,6 +22,8 @@ final class ChatTableViewController: UIViewController {
     private var lastConversationId: String?
     private var disposeBag = DisposeBag()
     private weak var boundViewModel: ChatListViewModel?
+    var onDeleteMessage: ((Message) -> Void)?
+    var onSelectText: ((Message) -> Void)?
     private var streamingDisplayLink: CADisplayLink?
     private var pendingStreamingIndexPath: IndexPath?
     private var pendingStreamingAutoScroll: Bool = false
@@ -246,6 +248,40 @@ extension ChatTableViewController: UITableViewDelegate {
         }
     }
 
+    func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard let message = messageForRow(at: indexPath) else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self else { return nil }
+            let hasText = !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let copyAction = UIAction(
+                title: "复制",
+                image: UIImage(systemName: "doc.on.doc"),
+                attributes: hasText ? [] : [.disabled]
+            ) { _ in
+                UIPasteboard.general.string = message.content
+            }
+            let selectAction = UIAction(
+                title: "选取文字",
+                image: UIImage(systemName: "text.cursor"),
+                attributes: hasText ? [] : [.disabled]
+            ) { [weak self] _ in
+                self?.onSelectText?(message)
+            }
+            let deleteAction = UIAction(
+                title: "删除",
+                image: UIImage(systemName: "trash"),
+                attributes: [.destructive]
+            ) { [weak self] _ in
+                self?.onDeleteMessage?(message)
+            }
+            return UIMenu(title: "", children: [copyAction, selectAction, deleteAction])
+        }
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let userIsInteracting = tableView.isTracking || tableView.isDragging || tableView.isDecelerating
         if userIsInteracting {
@@ -270,6 +306,20 @@ private extension ChatTableViewController {
         let section = latestSections[indexPath.section]
         guard indexPath.row < section.items.count else { return nil }
         return section.items[indexPath.row]
+    }
+
+    func messageForRow(at indexPath: IndexPath) -> Message? {
+        guard let row = item(at: indexPath) else { return nil }
+        switch row {
+        case .messageMarkdown(let message):
+            return message
+        case .messageSend(let message):
+            return message
+        case .messageMedia(let message):
+            return message
+        case .loading:
+            return nil
+        }
     }
 
     func scrollToBottomByOffset() {

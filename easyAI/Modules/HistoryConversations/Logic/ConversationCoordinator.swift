@@ -46,5 +46,8 @@ final class ConversationCoordinator {
         try messageRepository.deleteMessages(conversationId: id)
         try conversationRepository.deleteConversation(id: id)
     }
-}
 
+    func deleteMessage(id: String) throws {
+        try messageRepository.deleteMessage(id: id)
+    }
+}
