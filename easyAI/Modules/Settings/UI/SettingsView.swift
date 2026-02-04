@@ -19,6 +19,7 @@ struct SettingsView: View {
     
     @State private var showDeleteConfirmation: Bool = false
     @State private var showModelSelector: Bool = false
+    @State private var showTtsSettings: Bool = false
     @State private var maxTokensText: String = ""
     @State private var apiKeyText: String = ""
     
@@ -131,6 +132,23 @@ struct SettingsView: View {
                             }
                     }
                 }
+
+                // MARK: - 语音朗读增强
+                Section(header: Text("语音朗读增强"), footer: Text("配置音色、语速、音高与语音对话模式。")) {
+                    Button {
+                        showTtsSettings = true
+                    } label: {
+                        HStack {
+                            Text("语音朗读设置")
+                                .foregroundColor(AppThemeSwift.textPrimary)
+                            Spacer()
+                            Text(ttsSummary)
+                                .font(.caption)
+                                .foregroundColor(AppThemeSwift.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
                 
                 // MARK: - 数据管理
                 Section(header: Text("数据管理"), footer: Text("删除所有聊天消息，此操作无法撤销。")) {
@@ -179,6 +197,10 @@ struct SettingsView: View {
                 .environmentObject(viewModel)
                 .environmentObject(ThemeManager.shared)
             }
+            .sheet(isPresented: $showTtsSettings) {
+                TextToSpeechSettingsView()
+                    .environmentObject(ThemeManager.shared)
+            }
             .alert("确认删除", isPresented: $showDeleteConfirmation) {
                 Button("取消", role: .cancel) { }
                 Button("删除", role: .destructive) {
@@ -201,6 +223,11 @@ struct SettingsView: View {
 
     private var modelProvider: ModelProvider {
         viewModel.selectedModel?.provider ?? .openrouter
+    }
+
+    private var ttsSummary: String {
+        let voiceName = TextToSpeechSettingsView.displayName(for: configManager.ttsVoiceIdentifier)
+        return "\(voiceName) · 语速 \(String(format: "%.2f", configManager.ttsRate)) · 音高 \(String(format: "%.2f", configManager.ttsPitch))"
     }
 
 }

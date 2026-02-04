@@ -12,6 +12,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import AVFoundation
 
 /// 配置管理器，使用 UserDefaults 持久化配置
 class ConfigManager: ObservableObject {
@@ -30,6 +31,9 @@ class ConfigManager: ObservableObject {
     private let favoriteModelIdsKey = "Config.favoriteModelIds"
     private let selectedThemeIdKey = "Config.selectedThemeId"
     private let ttsMutedKey = "Config.ttsMuted"
+    private let ttsVoiceIdentifierKey = "Config.ttsVoiceIdentifier"
+    private let ttsRateKey = "Config.ttsRate"
+    private let ttsPitchKey = "Config.ttsPitch"
     
     // MARK: - 发布属性
     @Published var useMockData: Bool {
@@ -111,6 +115,29 @@ class ConfigManager: ObservableObject {
             UserDefaults.standard.set(ttsMuted, forKey: ttsMutedKey)
         }
     }
+
+    @Published var ttsVoiceIdentifier: String? {
+        didSet {
+            if let ttsVoiceIdentifier {
+                UserDefaults.standard.set(ttsVoiceIdentifier, forKey: ttsVoiceIdentifierKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: ttsVoiceIdentifierKey)
+            }
+        }
+    }
+
+    @Published var ttsRate: Double {
+        didSet {
+            UserDefaults.standard.set(ttsRate, forKey: ttsRateKey)
+        }
+    }
+
+    @Published var ttsPitch: Double {
+        didSet {
+            UserDefaults.standard.set(ttsPitch, forKey: ttsPitchKey)
+        }
+    }
+
     
     private init() {
         // 从 UserDefaults 读取配置，如果没有则使用默认值
@@ -134,6 +161,19 @@ class ConfigManager: ObservableObject {
         self.favoriteModelIds = UserDefaults.standard.stringArray(forKey: favoriteModelIdsKey) ?? []
         self.selectedThemeId = UserDefaults.standard.string(forKey: selectedThemeIdKey)
         self.ttsMuted = UserDefaults.standard.object(forKey: ttsMutedKey) as? Bool ?? false
+        self.ttsVoiceIdentifier = UserDefaults.standard.string(forKey: ttsVoiceIdentifierKey)
+
+        let storedTtsRate = UserDefaults.standard.object(forKey: ttsRateKey) as? Double
+        let minRate = Double(AVSpeechUtteranceMinimumSpeechRate)
+        let maxRate = Double(AVSpeechUtteranceMaximumSpeechRate)
+        let defaultRate = Double(AVSpeechUtteranceDefaultSpeechRate)
+        let clampedRate = min(max(storedTtsRate ?? defaultRate, minRate), maxRate)
+        self.ttsRate = clampedRate
+
+        let storedPitch = UserDefaults.standard.object(forKey: ttsPitchKey) as? Double
+        let clampedPitch = min(max(storedPitch ?? 1.0, 0.5), 2.0)
+        self.ttsPitch = clampedPitch
+
     }
 }
 
@@ -204,6 +244,22 @@ extension AppConfig {
         get { ConfigManager.shared.ttsMuted }
         set { ConfigManager.shared.ttsMuted = newValue }
     }
+
+    static var ttsVoiceIdentifier: String? {
+        get { ConfigManager.shared.ttsVoiceIdentifier }
+        set { ConfigManager.shared.ttsVoiceIdentifier = newValue }
+    }
+
+    static var ttsRate: Double {
+        get { ConfigManager.shared.ttsRate }
+        set { ConfigManager.shared.ttsRate = newValue }
+    }
+
+    static var ttsPitch: Double {
+        get { ConfigManager.shared.ttsPitch }
+        set { ConfigManager.shared.ttsPitch = newValue }
+    }
+
 }
 
 enum MessageContextStrategy: String, CaseIterable, Identifiable {

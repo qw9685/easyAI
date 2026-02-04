@@ -226,8 +226,28 @@ private extension TextToSpeechManager {
         let next = speechQueue.removeFirst()
         prepareAudioSession()
         let utterance = AVSpeechUtterance(string: next.text)
-        utterance.voice = AVSpeechSynthesisVoice(language: next.language)
+        utterance.voice = resolvedVoice(language: next.language)
+        utterance.rate = Float(clampedSpeechRate())
+        utterance.pitchMultiplier = Float(clampedPitch())
         synthesizer.speak(utterance)
+    }
+
+    func resolvedVoice(language: String) -> AVSpeechSynthesisVoice? {
+        if let id = AppConfig.ttsVoiceIdentifier,
+           let voice = AVSpeechSynthesisVoice(identifier: id) {
+            return voice
+        }
+        return AVSpeechSynthesisVoice(language: language)
+    }
+
+    func clampedSpeechRate() -> Double {
+        let minRate = Double(AVSpeechUtteranceMinimumSpeechRate)
+        let maxRate = Double(AVSpeechUtteranceMaximumSpeechRate)
+        return min(max(AppConfig.ttsRate, minRate), maxRate)
+    }
+
+    func clampedPitch() -> Double {
+        return min(max(AppConfig.ttsPitch, 0.5), 2.0)
     }
 }
 
