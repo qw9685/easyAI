@@ -147,6 +147,8 @@ struct SettingsView: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
             .scrollContentBackground(.hidden)
             .background(AppThemeSwift.backgroundGradient)
             .tint(AppThemeSwift.accent)

@@ -16,7 +16,7 @@ struct ChatRootView: UIViewControllerRepresentable {
     @EnvironmentObject var themeManager: ThemeManager
     
     func makeUIViewController(context: Context) -> UINavigationController {
-        let controller = ChatViewController(viewModel: viewModel)
+        let controller = MainPagerViewController(viewModel: viewModel)
         return UINavigationController(rootViewController: controller)
     }
     
