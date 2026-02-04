@@ -1,0 +1,16 @@
+<svg width="1290" height="2796" viewBox="0 0 1290 2796" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1290" height="2796" fill="#F7F8FA"/>
+  <rect x="0" y="0" width="1290" height="2796" fill="url(#bg)"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="#F7F8FA"/>
+      <stop offset="1" stop-color="#F3F6FF"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0,0)">
+    <rect x="315" y="990" width="660" height="660" rx="160" fill="#FFFFFF"/>
+    <text x="645" y="1340" text-anchor="middle" font-family="SF Pro Rounded, Arial" font-size="260" font-weight="700" fill="#0F1115">AI</text>
+    <rect x="444" y="1445" width="402" height="22" rx="11" fill="#2F5CFF"/>
+  </g>
+  <text x="645" y="1750" text-anchor="middle" font-family="SF Pro Rounded, Arial" font-size="44" font-weight="500" fill="#5B6068">EasyAI</text>
+</svg>

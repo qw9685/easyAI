@@ -1,0 +1,16 @@
+<svg width="1290" height="2796" viewBox="0 0 1290 2796" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1290" height="2796" fill="#FFFFFF"/>
+  <rect x="120" y="780" width="1050" height="1236" rx="80" fill="#F7F8FA"/>
+  <rect x="210" y="900" width="870" height="260" rx="60" fill="#FFFFFF"/>
+  <rect x="210" y="1210" width="870" height="260" rx="60" fill="#FFFFFF"/>
+  <rect x="210" y="1520" width="870" height="260" rx="60" fill="#FFFFFF"/>
+  <rect x="210" y="1830" width="870" height="260" rx="60" fill="#FFFFFF"/>
+  <rect x="210" y="2140" width="870" height="260" rx="60" fill="#FFFFFF"/>
+  <text x="645" y="560" text-anchor="middle" font-family="SF Pro Rounded, Arial" font-size="64" font-weight="600" fill="#0F1115">EasyAI</text>
+  <rect x="240" y="980" width="220" height="22" rx="11" fill="#E9EBF0"/>
+  <rect x="240" y="1300" width="220" height="22" rx="11" fill="#E9EBF0"/>
+  <rect x="240" y="1610" width="220" height="22" rx="11" fill="#E9EBF0"/>
+  <rect x="240" y="1920" width="220" height="22" rx="11" fill="#E9EBF0"/>
+  <rect x="240" y="2230" width="220" height="22" rx="11" fill="#E9EBF0"/>
+  <rect x="900" y="980" width="140" height="22" rx="11" fill="#2F5CFF"/>
+</svg>

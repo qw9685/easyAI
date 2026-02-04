@@ -1,0 +1,7 @@
+<svg width="1290" height="2796" viewBox="0 0 1290 2796" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1290" height="2796" fill="#F7F8FA"/>
+  <path d="M0 1400 C 200 1300, 400 1500, 600 1400 C 800 1300, 1000 1500, 1290 1400 L1290 2796 L0 2796 Z" fill="#E9EEFF"/>
+  <circle cx="645" cy="1200" r="160" fill="#FFFFFF"/>
+  <text x="645" y="1245" text-anchor="middle" font-family="SF Pro Rounded, Arial" font-size="160" font-weight="700" fill="#2F5CFF">AI</text>
+  <text x="645" y="1470" text-anchor="middle" font-family="SF Pro Rounded, Arial" font-size="44" font-weight="500" fill="#5B6068">EasyAI</text>
+</svg>

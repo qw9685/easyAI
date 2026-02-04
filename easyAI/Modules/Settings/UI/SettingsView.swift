@@ -142,7 +142,7 @@ struct SettingsView: View {
                             Text("删除所有消息")
                         }
                     }
-                    .disabled(viewModel.messages.isEmpty)
+                    .disabled(viewModel.conversations.isEmpty)
                 }
             }
             .navigationTitle("设置")
@@ -189,6 +189,7 @@ struct SettingsView: View {
             }
         }
         .id(themeManager.selection)
+        .preferredColorScheme(.light)
     }
 
     private var fullModelName: String {

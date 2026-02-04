@@ -36,12 +36,18 @@ final class ChatInputBarViewController: UIViewController {
     private let textView = UITextView()
     private var textViewHeightConstraint: Constraint?
     private let clearTextButton = UIButton(type: .system)
+    private let micButton = UIButton(type: .system)
+    private let micIndicator = UIView()
+    private let trailingStack = UIStackView()
 
     private let maxLines: Int = 5
     private let thumbSize: CGFloat = 48
     private let thumbSpacing: CGFloat = 8
     private let textMinHeight: CGFloat = 20
     private var cachedPhotoPicker: PHPickerViewController?
+    private var isRecognizing: Bool = false
+    private var recognitionBaseText: String = ""
+    private let speechManager = SpeechToTextManager.shared
 
     init(viewModel: ChatViewModel) {
         self.viewModel = viewModel
@@ -159,6 +165,8 @@ final class ChatInputBarViewController: UIViewController {
         photoButton.tintColor = AppTheme.textSecondary
         clearTextButton.tintColor = AppTheme.textTertiary
         textView.textColor = AppTheme.textPrimary
+        micButton.tintColor = isRecognizing ? AppTheme.accent : AppTheme.textSecondary
+        micIndicator.backgroundColor = AppTheme.accent
 
         let size: CGFloat = 32
         let radius: CGFloat = size / 2
@@ -269,20 +277,12 @@ final class ChatInputBarViewController: UIViewController {
         textView.snp.makeConstraints { make in
             make.top.equalTo(selectedImagesCollection.snp.bottom).offset(8)
             make.leading.equalToSuperview().offset(16)
-            make.trailing.equalToSuperview().inset(44)
+            make.trailing.equalToSuperview().inset(76)
             make.bottom.equalToSuperview().inset(12)
             textViewHeightConstraint = make.height.equalTo(textMinHeight).priority(.high).constraint
         }
 
-        clearTextButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        clearTextButton.tintColor = AppTheme.textTertiary
-        clearTextButton.addTarget(self, action: #selector(didTapClearText), for: .touchUpInside)
-        inputContainer.addSubview(clearTextButton)
-        clearTextButton.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().inset(12)
-            make.top.equalTo(textView.snp.top).offset(1)
-            make.width.height.equalTo(22)
-        }
+        configureTrailingControls()
 
         // placeholder
         let placeholder = UILabel()
@@ -344,6 +344,9 @@ final class ChatInputBarViewController: UIViewController {
         photoButton.tintColor = hasAny ? AppTheme.accent : AppTheme.textSecondary
         photoButton.isEnabled = input.remainingSelectionLimit > 0
         photoButton.alpha = photoButton.isEnabled ? 1.0 : 0.4
+
+        micButton.isEnabled = !viewModel.isLoading
+        micButton.alpha = micButton.isEnabled ? 1.0 : 0.4
     }
 
     private func updateSelectedImagesBarVisibility() {
@@ -381,10 +384,12 @@ final class ChatInputBarViewController: UIViewController {
     }
 
     @objc private func didTapSend() {
+        stopRecognitionIfNeeded()
         input.send(chatViewModel: viewModel)
     }
 
     @objc private func didTapPhoto() {
+        stopRecognitionIfNeeded()
         let remaining = input.remainingSelectionLimit
         guard remaining > 0 else { return }
         // PHPickerViewController.configuration 是只读的；selectionLimit 需要在创建时确定。
@@ -395,6 +400,115 @@ final class ChatInputBarViewController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             self?.present(picker, animated: true)
         }
+    }
+}
+
+private extension ChatInputBarViewController {
+    func configureTrailingControls() {
+        trailingStack.axis = .horizontal
+        trailingStack.alignment = .center
+        trailingStack.spacing = 6
+        inputContainer.addSubview(trailingStack)
+        trailingStack.snp.makeConstraints { make in
+            make.trailing.equalToSuperview().inset(12)
+            make.top.equalTo(textView.snp.top).offset(1)
+            make.height.equalTo(22)
+        }
+
+        clearTextButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        clearTextButton.tintColor = AppTheme.textTertiary
+        clearTextButton.addTarget(self, action: #selector(didTapClearText), for: .touchUpInside)
+        clearTextButton.snp.makeConstraints { make in
+            make.width.height.equalTo(22)
+        }
+
+        micButton.setImage(UIImage(systemName: "mic"), for: .normal)
+        micButton.tintColor = AppTheme.textSecondary
+        micButton.addTarget(self, action: #selector(didTapMic), for: .touchUpInside)
+        micButton.snp.makeConstraints { make in
+            make.width.height.equalTo(22)
+        }
+
+        micIndicator.backgroundColor = AppTheme.accent
+        micIndicator.layer.cornerRadius = 3
+        micIndicator.isHidden = true
+        micIndicator.snp.makeConstraints { make in
+            make.width.height.equalTo(6)
+        }
+
+        trailingStack.addArrangedSubview(clearTextButton)
+        trailingStack.addArrangedSubview(micButton)
+        trailingStack.addArrangedSubview(micIndicator)
+    }
+
+    @objc func didTapMic() {
+#if targetEnvironment(simulator)
+        showSpeechPermissionAlert(message: "模拟器不支持录音，请在真机测试语音输入。")
+        return
+#endif
+        if isRecognizing {
+            stopRecognitionIfNeeded()
+            return
+        }
+
+        Task { @MainActor in
+            let allowed = await speechManager.requestPermissions()
+            guard allowed else {
+                showSpeechPermissionAlert(message: "请在系统设置中允许麦克风和语音识别权限。")
+                return
+            }
+            recognitionBaseText = input.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+            startRecognition()
+        }
+    }
+
+    func startRecognition() {
+        isRecognizing = true
+        micIndicator.isHidden = false
+        micButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+        micButton.tintColor = AppTheme.accent
+
+        speechManager.startRecognition(
+            baseText: recognitionBaseText,
+            onUpdate: { [weak self] transcript, isFinal in
+                guard let self else { return }
+                let prefix = self.recognitionBaseText
+                let combined: String
+                if prefix.isEmpty {
+                    combined = transcript
+                } else if transcript.isEmpty {
+                    combined = prefix
+                } else {
+                    combined = prefix + " " + transcript
+                }
+                self.input.inputText = combined
+                if isFinal {
+                    self.stopRecognitionIfNeeded()
+                }
+            },
+            onError: { [weak self] _ in
+                self?.stopRecognitionIfNeeded()
+            }
+        )
+    }
+
+    func stopRecognitionIfNeeded() {
+        guard isRecognizing else { return }
+        isRecognizing = false
+        speechManager.stopRecognition()
+        micIndicator.isHidden = true
+        micButton.setImage(UIImage(systemName: "mic"), for: .normal)
+        micButton.tintColor = AppTheme.textSecondary
+    }
+
+    func showSpeechPermissionAlert(message: String) {
+        let alert = UIAlertController(
+            title: "需要语音权限",
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "好", style: .default))
+        present(alert, animated: true)
     }
 }
 

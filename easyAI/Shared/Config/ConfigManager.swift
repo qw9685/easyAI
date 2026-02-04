@@ -29,6 +29,7 @@ class ConfigManager: ObservableObject {
     private let selectedModelIdKey = "Config.selectedModelId"
     private let favoriteModelIdsKey = "Config.favoriteModelIds"
     private let selectedThemeIdKey = "Config.selectedThemeId"
+    private let ttsMutedKey = "Config.ttsMuted"
     
     // MARK: - 发布属性
     @Published var useMockData: Bool {
@@ -104,6 +105,12 @@ class ConfigManager: ObservableObject {
             }
         }
     }
+
+    @Published var ttsMuted: Bool {
+        didSet {
+            UserDefaults.standard.set(ttsMuted, forKey: ttsMutedKey)
+        }
+    }
     
     private init() {
         // 从 UserDefaults 读取配置，如果没有则使用默认值
@@ -126,6 +133,7 @@ class ConfigManager: ObservableObject {
         self.selectedModelId = UserDefaults.standard.string(forKey: selectedModelIdKey)
         self.favoriteModelIds = UserDefaults.standard.stringArray(forKey: favoriteModelIdsKey) ?? []
         self.selectedThemeId = UserDefaults.standard.string(forKey: selectedThemeIdKey)
+        self.ttsMuted = UserDefaults.standard.object(forKey: ttsMutedKey) as? Bool ?? false
     }
 }
 
@@ -190,6 +198,11 @@ extension AppConfig {
     static var selectedThemeId: String? {
         get { ConfigManager.shared.selectedThemeId }
         set { ConfigManager.shared.selectedThemeId = newValue }
+    }
+
+    static var ttsMuted: Bool {
+        get { ConfigManager.shared.ttsMuted }
+        set { ConfigManager.shared.ttsMuted = newValue }
     }
 }
 

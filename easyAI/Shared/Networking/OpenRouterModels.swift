@@ -20,6 +20,7 @@ struct OpenRouterStreamResponse: Codable {
 
         struct Delta: Codable {
             let content: String?
+            let reasoning: String?
         }
     }
 }

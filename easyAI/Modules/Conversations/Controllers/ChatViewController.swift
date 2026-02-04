@@ -21,7 +21,6 @@ final class ChatViewController: UIViewController {
     private let tableViewController = ChatTableViewController()
     private lazy var inputBarController = ChatInputBarViewController(viewModel: viewModel)
     private let disposeBag = DisposeBag()
-    private var inputBarBottomConstraint: Constraint?
     private let backgroundGradient = CAGradientLayer()
     private var themeObserver: NSObjectProtocol?
     
@@ -38,7 +37,6 @@ final class ChatViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         bindViewModel()
-        bindKeyboard()
         loadModelsIfNeeded()
         observeThemeChanges()
     }
@@ -84,7 +82,7 @@ final class ChatViewController: UIViewController {
         }
         inputBarController.view.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
-            inputBarBottomConstraint = make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).constraint
+            make.bottom.equalTo(view.keyboardLayoutGuide.snp.top)
         }
     }
     
@@ -158,38 +156,6 @@ final class ChatViewController: UIViewController {
         view.endEditing(true)
     }
 
-    private func bindKeyboard() {
-        NotificationCenter.default.rx.notification(UIResponder.keyboardWillChangeFrameNotification)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] notification in
-                self?.handleKeyboard(notification: notification)
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    private func handleKeyboard(notification: Notification) {
-        guard
-            let userInfo = notification.userInfo,
-            let endFrame = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-            let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval,
-            let curveValue = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
-        else {
-            return
-        }
-        
-        let keyboardFrame = view.convert(endFrame, from: nil)
-        let overlap = max(0, view.bounds.maxY - keyboardFrame.minY)
-        
-        inputBarBottomConstraint?.update(offset: -overlap)
-        let options = UIView.AnimationOptions(rawValue: curveValue << 16)
-        UIView.animate(withDuration: duration, delay: 0, options: options) {
-            self.view.layoutIfNeeded()
-            self.tableViewController.keepBottomPinnedForLayoutChange(animated: true)
-        } completion: { _ in
-            self.tableViewController.keepBottomPinnedForLayoutChange(animated: false)
-        }
-    }
-    
     
     private func loadModelsIfNeeded() {
         if viewModel.availableModels.isEmpty {

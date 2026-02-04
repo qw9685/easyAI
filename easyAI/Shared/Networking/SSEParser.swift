@@ -79,8 +79,13 @@ struct SSEParser {
         do {
             let decoder = JSONDecoder()
             let streamResponse = try decoder.decode(OpenRouterStreamResponse.self, from: jsonData)
-            if let delta = streamResponse.choices.first?.delta.content, !delta.isEmpty {
-                return .delta(delta)
+            if let choice = streamResponse.choices.first {
+                if let content = choice.delta.content, !content.isEmpty {
+                    return .delta(content)
+                }
+                if let reasoning = choice.delta.reasoning, !reasoning.isEmpty {
+                    return .delta(reasoning)
+                }
             }
         } catch {
             if let jsonPreview = String(data: jsonData.prefix(200), encoding: .utf8) {

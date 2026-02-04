@@ -54,6 +54,13 @@ final class ChatSendMessageUseCase {
         mediaContents: [MediaContent] = [],
         env: ChatSendMessageEnvironment
     ) async {
+        let apiKey = AppConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !AppConfig.useMockData, apiKey.isEmpty {
+            env.setErrorMessage("请先在设置中填写 OpenRouter API Key")
+            NotificationCenter.default.post(name: .switchToSettingsPage, object: nil)
+            return
+        }
+
         guard env.ensureConversation() else { return }
         activeTypewriter?.cancel()
         activeTypewriter = nil
@@ -116,6 +123,7 @@ final class ChatSendMessageUseCase {
                     itemId: assistantMessageItemId
                 )
                 env.appendMessage(assistantMessage)
+                TextToSpeechManager.shared.startStreamingSession()
 
                 let messageId = assistantMessage.id
                 logger.phase("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString)")
@@ -126,6 +134,7 @@ final class ChatSendMessageUseCase {
                         model: model.apiModel,
                         onProgress: { progress in
                             env.updateMessageContent(messageId, progress.fullContent)
+                            TextToSpeechManager.shared.updateStreamingText(progress.fullContent)
                             if progress.chunkCount == 1 || progress.chunkCount % 50 == 0 {
                                 self.logger.phase(
                                     "stream chunk | baseId=\(baseId) | itemId=\(assistantMessageItemId) | chunks=\(progress.chunkCount) | len=\(progress.fullContent.count)"
@@ -146,6 +155,7 @@ final class ChatSendMessageUseCase {
                     if let updated {
                         await env.updatePersistedMessage(updated)
                     }
+                    TextToSpeechManager.shared.finishStreamingSession()
 
                     logger.phase(
                         "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
@@ -174,6 +184,9 @@ final class ChatSendMessageUseCase {
                         if let updated {
                             Task { await env.updatePersistedMessage(updated) }
                         }
+                        Task { @MainActor in
+                            TextToSpeechManager.shared.finishStreamingSession()
+                        }
                         if let result = streamResult {
                             self?.logger.phase(
                                 "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
@@ -191,6 +204,7 @@ final class ChatSendMessageUseCase {
                     model: model.apiModel,
                     onProgress: { progress in
                         typewriter.updateTarget(progress.fullContent)
+                        TextToSpeechManager.shared.updateStreamingText(progress.fullContent)
                         if progress.chunkCount == 1 || progress.chunkCount % 50 == 0 {
                             self.logger.phase(
                                 "stream chunk | baseId=\(baseId) | itemId=\(assistantMessageItemId) | chunks=\(progress.chunkCount) | len=\(progress.fullContent.count)"
@@ -201,6 +215,7 @@ final class ChatSendMessageUseCase {
                 streamResult = result
                 typewriter.updateTarget(result.fullContent)
                 typewriter.markStreamEnded()
+                TextToSpeechManager.shared.finishStreamingSession()
             } else {
                 let messagesToSend = env.buildMessagesForRequest(userMessage)
                 let response = try await turnRunner.runNonStream(messages: messagesToSend, model: model.apiModel)
@@ -218,6 +233,10 @@ final class ChatSendMessageUseCase {
                     env.batchUpdate {
                         env.setIsLoading(false)
                         env.appendMessage(assistantMessage)
+                    }
+
+                    await MainActor.run {
+                        TextToSpeechManager.shared.speak(assistantMessage.content)
                     }
 
                     logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
@@ -255,6 +274,9 @@ final class ChatSendMessageUseCase {
                         }
                         if let updated {
                             Task { await env.updatePersistedMessage(updated) }
+                            Task { @MainActor in
+                                TextToSpeechManager.shared.speak(updated.content)
+                            }
                         }
                         self?.logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
                         env.setCurrentTurnId(nil)
@@ -267,6 +289,7 @@ final class ChatSendMessageUseCase {
                 typewriter.markStreamEnded()
             }
         } catch {
+            TextToSpeechManager.shared.finishStreamingSession()
             activeTypewriter?.cancel()
             activeTypewriter = nil
             let errorDesc = error.localizedDescription

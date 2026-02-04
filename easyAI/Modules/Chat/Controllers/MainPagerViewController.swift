@@ -16,12 +16,14 @@ final class MainPagerViewController: UIViewController {
     private let topBarView = UIView()
     private let leftButton = UIButton(type: .system)
     private let rightButton = UIButton(type: .system)
+    private let ttsButton = UIButton(type: .system)
     private let titleLabel = UILabel()
 
     private var controllers: [UIViewController] = []
     private var currentIndex: Int = 1
     private var themeObserver: NSObjectProtocol?
     private var switchObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
 
     init(viewModel: ChatViewModel) {
         self.viewModel = viewModel
@@ -45,6 +47,7 @@ final class MainPagerViewController: UIViewController {
         updateTopBarButtons()
         observeThemeChanges()
         observeSwitchToChat()
+        observeSwitchToSettings()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -62,6 +65,9 @@ final class MainPagerViewController: UIViewController {
         }
         if let switchObserver {
             NotificationCenter.default.removeObserver(switchObserver)
+        }
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
         }
     }
 
@@ -111,10 +117,12 @@ final class MainPagerViewController: UIViewController {
 
         leftButton.setImage(UIImage(systemName: "clock"), for: .normal)
         rightButton.setImage(UIImage(systemName: "gearshape"), for: .normal)
+        ttsButton.setImage(ttsToggleImage(), for: .normal)
         leftButton.addTarget(self, action: #selector(didTapHistory), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(didTapSettings), for: .touchUpInside)
+        ttsButton.addTarget(self, action: #selector(didTapTtsToggle), for: .touchUpInside)
 
-        [leftButton, rightButton, titleLabel].forEach { item in
+        [leftButton, rightButton, ttsButton, titleLabel].forEach { item in
             item.translatesAutoresizingMaskIntoConstraints = false
             topBarView.addSubview(item)
         }
@@ -137,6 +145,11 @@ final class MainPagerViewController: UIViewController {
             rightButton.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor),
             rightButton.widthAnchor.constraint(equalToConstant: 28),
             rightButton.heightAnchor.constraint(equalToConstant: 28),
+
+            ttsButton.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor, constant: -12),
+            ttsButton.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor),
+            ttsButton.widthAnchor.constraint(equalToConstant: 28),
+            ttsButton.heightAnchor.constraint(equalToConstant: 28),
 
             titleLabel.centerXAnchor.constraint(equalTo: topBarView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor)
@@ -163,6 +176,16 @@ final class MainPagerViewController: UIViewController {
         }
     }
 
+    private func observeSwitchToSettings() {
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .switchToSettingsPage,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.switchTo(index: 2)
+        }
+    }
+
     private func applyTheme() {
         view.backgroundColor = AppTheme.canvas
         topBarView.backgroundColor = .white
@@ -170,6 +193,7 @@ final class MainPagerViewController: UIViewController {
 
         leftButton.tintColor = AppTheme.textPrimary
         rightButton.tintColor = AppTheme.textPrimary
+        ttsButton.tintColor = AppTheme.textPrimary
     }
 
     private func updateNavTitle() {
@@ -179,19 +203,24 @@ final class MainPagerViewController: UIViewController {
     private func updateTopBarButtons() {
         switch currentIndex {
         case 1:
-            // Chat: left -> history, right -> settings
+            // Chat: left -> history, right -> settings, tts -> toggle
             leftButton.isHidden = false
             rightButton.isHidden = false
+            ttsButton.isHidden = false
             leftButton.setImage(UIImage(systemName: "clock"), for: .normal)
             rightButton.setImage(UIImage(systemName: "gearshape"), for: .normal)
+            ttsButton.setImage(ttsToggleImage(), for: .normal)
             leftButton.removeTarget(nil, action: nil, for: .allEvents)
             rightButton.removeTarget(nil, action: nil, for: .allEvents)
+            ttsButton.removeTarget(nil, action: nil, for: .allEvents)
             leftButton.addTarget(self, action: #selector(didTapHistory), for: .touchUpInside)
             rightButton.addTarget(self, action: #selector(didTapSettings), for: .touchUpInside)
+            ttsButton.addTarget(self, action: #selector(didTapTtsToggle), for: .touchUpInside)
         case 0:
             // History: left hidden, right -> back to chat
             leftButton.isHidden = true
             rightButton.isHidden = false
+            ttsButton.isHidden = true
             rightButton.setImage(UIImage(systemName: "bubble.left"), for: .normal)
             rightButton.removeTarget(nil, action: nil, for: .allEvents)
             rightButton.addTarget(self, action: #selector(didTapChat), for: .touchUpInside)
@@ -199,6 +228,7 @@ final class MainPagerViewController: UIViewController {
             // Settings: left -> back to chat, right hidden
             leftButton.isHidden = false
             rightButton.isHidden = true
+            ttsButton.isHidden = true
             leftButton.setImage(UIImage(systemName: "bubble.left"), for: .normal)
             leftButton.removeTarget(nil, action: nil, for: .allEvents)
             leftButton.addTarget(self, action: #selector(didTapChat), for: .touchUpInside)
@@ -216,7 +246,14 @@ final class MainPagerViewController: UIViewController {
     }
 
     @objc private func didTapChat() {
+        viewModel.startNewConversation()
         switchTo(index: 1)
+    }
+
+    @objc private func didTapTtsToggle() {
+        AppConfig.ttsMuted.toggle()
+        TextToSpeechManager.shared.handleMuteChanged()
+        ttsButton.setImage(ttsToggleImage(), for: .normal)
     }
 
     private func switchTo(index: Int) {
@@ -231,6 +268,12 @@ final class MainPagerViewController: UIViewController {
         )
         updateNavTitle()
         updateTopBarButtons()
+    }
+
+    private func ttsToggleImage() -> UIImage? {
+        AppConfig.ttsMuted
+            ? UIImage(systemName: "speaker.slash")
+            : UIImage(systemName: "speaker.wave.2")
     }
 }
 
