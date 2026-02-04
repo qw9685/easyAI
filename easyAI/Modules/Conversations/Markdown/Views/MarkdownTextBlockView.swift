@@ -99,7 +99,7 @@ private final class MathInlineAttachment: NSTextAttachment {
         let label = UILabel()
         label.font = font
         label.text = latex
-        label.textColor = .secondaryLabel
+        label.textColor = AppTheme.textSecondary
         label.sizeToFit()
         let size = CGSize(width: max(12, label.bounds.width + 6), height: max(12, label.bounds.height + 4))
         let renderer = UIGraphicsImageRenderer(size: size)

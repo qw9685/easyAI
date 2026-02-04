@@ -212,6 +212,16 @@ final class ChatTableViewController: UIViewController {
 
         autoScroll.recordPinnedContentHeight(tableView.contentSize.height)
     }
+
+    func applyTheme() {
+        let previousOffset = tableView.contentOffset
+        tableView.backgroundView = ChatEmptyStateView()
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+            tableView.setContentOffset(previousOffset, animated: false)
+        }
+    }
     
     private func updateEmptyState() {
         let shouldShow = boundViewModel?.shouldShowEmptyState(messages: currentMessages, isLoading: currentIsLoading)

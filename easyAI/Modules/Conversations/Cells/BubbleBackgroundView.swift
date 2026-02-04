@@ -33,7 +33,7 @@ final class BubbleBackgroundView: UIView {
     }
     
     private func setup() {
-        layer.cornerRadius = 12
+        layer.cornerRadius = AppTheme.bubbleCornerRadius
         layer.masksToBounds = true
         updateAppearance()
     }
@@ -44,15 +44,18 @@ final class BubbleBackgroundView: UIView {
                 layer.insertSublayer(gradientLayer, at: 0)
             }
             gradientLayer.colors = [
-                UIColor.systemBlue.cgColor,
-                UIColor.systemPurple.cgColor
+                AppTheme.accent.cgColor,
+                AppTheme.accent2.cgColor
             ]
             gradientLayer.startPoint = CGPoint(x: 0, y: 0)
             gradientLayer.endPoint = CGPoint(x: 1, y: 1)
             backgroundColor = .clear
+            layer.borderWidth = 0
         } else {
             gradientLayer.removeFromSuperlayer()
-            backgroundColor = UIColor.systemGray6
+            backgroundColor = AppTheme.surfaceAlt
+            layer.borderWidth = AppTheme.borderWidth / UIScreen.main.scale
+            layer.borderColor = AppTheme.border.cgColor
         }
     }
 }

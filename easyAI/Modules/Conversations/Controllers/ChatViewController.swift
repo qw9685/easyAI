@@ -23,6 +23,7 @@ final class ChatViewController: UIViewController {
     private let disposeBag = DisposeBag()
     private var inputBarBottomConstraint: Constraint?
     private let backgroundGradient = CAGradientLayer()
+    private var themeObserver: NSObjectProtocol?
     
     init(viewModel: ChatViewModel) {
         self.viewModel = viewModel
@@ -39,6 +40,7 @@ final class ChatViewController: UIViewController {
         bindViewModel()
         bindKeyboard()
         loadModelsIfNeeded()
+        observeThemeChanges()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -52,6 +54,7 @@ final class ChatViewController: UIViewController {
     
     private func setupUI() {
         setupBackground()
+        setupNavigationBarAppearance()
         title = "EasyAI"
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "list.bullet"),
@@ -86,15 +89,58 @@ final class ChatViewController: UIViewController {
     }
     
     private func setupBackground() {
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = AppTheme.canvas
         backgroundGradient.colors = [
-            UIColor(red: 0.95, green: 0.97, blue: 1.0, alpha: 1).cgColor,
-            UIColor(red: 0.98, green: 0.99, blue: 1.0, alpha: 1).cgColor
+            AppTheme.canvas.cgColor,
+            AppTheme.canvasSoft.cgColor
         ]
         backgroundGradient.startPoint = CGPoint(x: 0, y: 0)
         backgroundGradient.endPoint = CGPoint(x: 1, y: 1)
         backgroundGradient.frame = view.bounds
-        view.layer.insertSublayer(backgroundGradient, at: 0)
+        if backgroundGradient.superlayer == nil {
+            view.layer.insertSublayer(backgroundGradient, at: 0)
+        }
+    }
+
+    private func setupNavigationBarAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = AppTheme.canvas
+        appearance.shadowColor = .clear
+        appearance.titleTextAttributes = [
+            .foregroundColor: AppTheme.textPrimary,
+            .font: AppTheme.titleFont
+        ]
+
+        let navBar = navigationController?.navigationBar
+        navBar?.standardAppearance = appearance
+        navBar?.scrollEdgeAppearance = appearance
+        navBar?.compactAppearance = appearance
+        navBar?.isTranslucent = false
+        navBar?.tintColor = AppTheme.textSecondary
+    }
+
+    private func observeThemeChanges() {
+        themeObserver = NotificationCenter.default.addObserver(
+            forName: .themeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyTheme()
+        }
+    }
+
+    private func applyTheme() {
+        setupBackground()
+        setupNavigationBarAppearance()
+        inputBarController.applyTheme()
+        tableViewController.applyTheme()
+    }
+
+    deinit {
+        if let themeObserver {
+            NotificationCenter.default.removeObserver(themeObserver)
+        }
     }
     
     private func bindViewModel() {
@@ -163,14 +209,18 @@ final class ChatViewController: UIViewController {
     }
     
     @objc private func showSettings() {
-        let settingsView = SettingsView().environmentObject(viewModel)
+        let settingsView = SettingsView()
+            .environmentObject(viewModel)
+            .environmentObject(ThemeManager.shared)
         let controller = UIHostingController(rootView: settingsView)
         controller.modalPresentationStyle = .formSheet
         present(controller, animated: true)
     }
     
     @objc private func showConversations() {
-        let conversationView = HistoryConversationsListView().environmentObject(viewModel)
+        let conversationView = HistoryConversationsListView()
+            .environmentObject(viewModel)
+            .environmentObject(ThemeManager.shared)
         let controller = UIHostingController(rootView: conversationView)
         controller.modalPresentationStyle = .formSheet
         present(controller, animated: true)

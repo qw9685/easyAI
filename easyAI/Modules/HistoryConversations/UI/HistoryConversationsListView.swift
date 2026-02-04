@@ -13,6 +13,7 @@ import SwiftUI
 
 struct HistoryConversationsListView: View {
     @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
     @State private var renameConversation: ConversationRecord?
     @State private var renameTitle: String = ""
@@ -54,9 +55,14 @@ struct HistoryConversationsListView: View {
                             Label("删除", systemImage: "trash")
                         }
                     }
+                    .listRowBackground(AppThemeSwift.surface)
                 }
             }
             .overlay(emptyStateView)
+            .scrollContentBackground(.hidden)
+            .background(AppThemeSwift.backgroundGradient)
+            .listRowSeparatorTint(AppThemeSwift.border)
+            .tint(AppThemeSwift.accent)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("关闭") {
@@ -65,7 +71,7 @@ struct HistoryConversationsListView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     Text("会话")
-                        .font(.headline)
+                        .font(AppThemeSwift.titleFont)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -96,6 +102,7 @@ struct HistoryConversationsListView: View {
                 Text("输入新的会话名称")
             }
         }
+        .id(themeManager.selection)
     }
 
     @ViewBuilder
@@ -104,13 +111,13 @@ struct HistoryConversationsListView: View {
             VStack(spacing: 12) {
                 Image(systemName: "message")
                     .font(.system(size: 40))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppThemeSwift.textSecondary)
                 Text("暂无会话")
                     .font(.headline)
-                    .foregroundColor(.primary)
+                    .foregroundColor(AppThemeSwift.textPrimary)
                 Text("开始聊天后，会话会显示在这里")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppThemeSwift.textSecondary)
             }
             .padding(.top, 40)
         }
@@ -124,20 +131,21 @@ private struct ConversationRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: conversation.isPinned ? "pin.fill" : "message")
-                .foregroundColor(conversation.isPinned ? .orange : .secondary)
+                .foregroundColor(conversation.isPinned ? AppThemeSwift.accent : AppThemeSwift.textSecondary)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(conversation.title)
                     .font(.headline)
+                    .foregroundColor(AppThemeSwift.textPrimary)
                 Text(conversation.updatedAt, style: .time)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppThemeSwift.textTertiary)
             }
             Spacer()
 
             if isCurrent {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.blue)
+                    .foregroundColor(AppThemeSwift.accent)
             }
         }
     }

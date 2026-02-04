@@ -24,7 +24,7 @@ final class ChatEmptyStateView: UIView {
     
     private func setup() {
         let icon = UIImageView(image: UIImage(systemName: "sparkles"))
-        icon.tintColor = UIColor.systemBlue
+        icon.tintColor = AppTheme.accent
         icon.contentMode = .scaleAspectFit
         icon.snp.makeConstraints { make in
             make.height.equalTo(60)
@@ -33,12 +33,12 @@ final class ChatEmptyStateView: UIView {
         let title = UILabel()
         title.text = "开始与AI对话"
         title.font = UIFont.preferredFont(forTextStyle: .title2)
-        title.textColor = .label
+        title.textColor = AppTheme.textPrimary
         
         let subtitle = UILabel()
         subtitle.text = "选择模型后，输入消息开始聊天"
         subtitle.font = UIFont.preferredFont(forTextStyle: .subheadline)
-        subtitle.textColor = .secondaryLabel
+        subtitle.textColor = AppTheme.textSecondary
         subtitle.numberOfLines = 0
         subtitle.textAlignment = .center
         

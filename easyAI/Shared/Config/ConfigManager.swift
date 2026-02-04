@@ -28,6 +28,7 @@ class ConfigManager: ObservableObject {
     private let contextStrategyKey = "Config.contextStrategy"
     private let selectedModelIdKey = "Config.selectedModelId"
     private let favoriteModelIdsKey = "Config.favoriteModelIds"
+    private let selectedThemeIdKey = "Config.selectedThemeId"
     
     // MARK: - 发布属性
     @Published var useMockData: Bool {
@@ -93,6 +94,16 @@ class ConfigManager: ObservableObject {
             UserDefaults.standard.set(favoriteModelIds, forKey: favoriteModelIdsKey)
         }
     }
+
+    @Published var selectedThemeId: String? {
+        didSet {
+            if let selectedThemeId {
+                UserDefaults.standard.set(selectedThemeId, forKey: selectedThemeIdKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: selectedThemeIdKey)
+            }
+        }
+    }
     
     private init() {
         // 从 UserDefaults 读取配置，如果没有则使用默认值
@@ -114,6 +125,7 @@ class ConfigManager: ObservableObject {
         self.contextStrategy = MessageContextStrategy(rawValue: strategyRaw ?? "") ?? .fullContext
         self.selectedModelId = UserDefaults.standard.string(forKey: selectedModelIdKey)
         self.favoriteModelIds = UserDefaults.standard.stringArray(forKey: favoriteModelIdsKey) ?? []
+        self.selectedThemeId = UserDefaults.standard.string(forKey: selectedThemeIdKey)
     }
 }
 
@@ -173,6 +185,11 @@ extension AppConfig {
     static var favoriteModelIds: [String] {
         get { ConfigManager.shared.favoriteModelIds }
         set { ConfigManager.shared.favoriteModelIds = newValue }
+    }
+
+    static var selectedThemeId: String? {
+        get { ConfigManager.shared.selectedThemeId }
+        set { ConfigManager.shared.selectedThemeId = newValue }
     }
 }
 

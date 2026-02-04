@@ -26,7 +26,7 @@ final class ChatTextSelectionViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = AppTheme.canvas
 
         let attributed = MarkdownAttributedTextBuilder().build(from: content)
         textView.attributedText = attributed
@@ -34,7 +34,7 @@ final class ChatTextSelectionViewController: UIViewController {
         textView.isSelectable = true
         textView.alwaysBounceVertical = true
         textView.font = UIFont.preferredFont(forTextStyle: .body)
-        textView.textColor = .label
+        textView.textColor = AppTheme.textPrimary
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 12, bottom: 16, right: 12)
 
         view.addSubview(textView)

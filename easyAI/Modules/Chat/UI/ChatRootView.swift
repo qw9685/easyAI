@@ -13,6 +13,7 @@ import SwiftUI
 
 struct ChatRootView: UIViewControllerRepresentable {
     @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     
     func makeUIViewController(context: Context) -> UINavigationController {
         let controller = ChatViewController(viewModel: viewModel)

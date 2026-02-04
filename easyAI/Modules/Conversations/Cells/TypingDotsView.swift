@@ -58,7 +58,7 @@ final class TypingDotsView: UIView {
         }
         
         for dot in dotViews {
-            dot.backgroundColor = UIColor.secondaryLabel.withAlphaComponent(0.6)
+            dot.backgroundColor = AppTheme.textTertiary.withAlphaComponent(0.8)
             dot.layer.cornerRadius = 4
             dot.snp.makeConstraints { make in
                 make.size.equalTo(CGSize(width: 8, height: 8))

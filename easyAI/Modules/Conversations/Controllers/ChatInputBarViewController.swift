@@ -101,18 +101,21 @@ final class ChatInputBarViewController: UIViewController {
     private func setupUI() {
         view.backgroundColor = .clear
 
-        topDivider.backgroundColor = UIColor.separator.withAlphaComponent(0.4)
+        topDivider.backgroundColor = AppTheme.border
         view.addSubview(topDivider)
         topDivider.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview()
             make.height.equalTo(1 / UIScreen.main.scale)
         }
 
-        rootBackground.backgroundColor = .systemBackground
-        rootBackground.layer.shadowColor = UIColor.black.cgColor
-        rootBackground.layer.shadowOpacity = 0.05
-        rootBackground.layer.shadowRadius = 10
-        rootBackground.layer.shadowOffset = CGSize(width: 0, height: -2)
+        rootBackground.backgroundColor = AppTheme.surface
+        rootBackground.layer.cornerRadius = AppTheme.inputCornerRadius
+        rootBackground.layer.borderColor = AppTheme.border.cgColor
+        rootBackground.layer.borderWidth = AppTheme.borderWidth / UIScreen.main.scale
+        rootBackground.layer.shadowColor = AppTheme.shadow.cgColor
+        rootBackground.layer.shadowOpacity = 1
+        rootBackground.layer.shadowRadius = AppTheme.shadowRadius
+        rootBackground.layer.shadowOffset = AppTheme.shadowOffset
         view.addSubview(rootBackground)
         rootBackground.snp.makeConstraints { make in
             make.top.equalTo(topDivider.snp.bottom)
@@ -142,10 +145,37 @@ final class ChatInputBarViewController: UIViewController {
         rowStack.setCustomSpacing(12, after: inputContainer)
     }
 
+    func applyTheme() {
+        topDivider.backgroundColor = AppTheme.border
+        rootBackground.backgroundColor = AppTheme.surface
+        rootBackground.layer.cornerRadius = AppTheme.inputCornerRadius
+        rootBackground.layer.borderColor = AppTheme.border.cgColor
+        rootBackground.layer.borderWidth = AppTheme.borderWidth / UIScreen.main.scale
+        rootBackground.layer.shadowColor = AppTheme.shadow.cgColor
+        rootBackground.layer.shadowOpacity = 1
+        rootBackground.layer.shadowRadius = AppTheme.shadowRadius
+        rootBackground.layer.shadowOffset = AppTheme.shadowOffset
+
+        photoButton.tintColor = AppTheme.textSecondary
+        clearTextButton.tintColor = AppTheme.textTertiary
+        textView.textColor = AppTheme.textPrimary
+
+        let size: CGFloat = 32
+        let radius: CGFloat = size / 2
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent, cornerRadius: radius), for: .normal)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.border, cornerRadius: radius), for: .disabled)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
+
+        if let placeholder = textView.viewWithTag(999) as? UILabel {
+            placeholder.textColor = AppTheme.textTertiary
+        }
+        updateUI()
+    }
+
     private func configurePhotoButton() {
         let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
         photoButton.setImage(UIImage(systemName: "photo", withConfiguration: config), for: .normal)
-        photoButton.tintColor = .secondaryLabel
+        photoButton.tintColor = AppTheme.textSecondary
         photoButton.addTarget(self, action: #selector(didTapPhoto), for: .touchUpInside)
         photoButton.snp.makeConstraints { make in
             make.width.height.equalTo(28)
@@ -163,15 +193,15 @@ final class ChatInputBarViewController: UIViewController {
         
         let size: CGFloat = 32
         let radius: CGFloat = size / 2
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: .systemBlue, cornerRadius: radius), for: .normal)
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: .systemGray3, cornerRadius: radius), for: .disabled)
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: UIColor.systemBlue.withAlphaComponent(0.85), cornerRadius: radius), for: .highlighted)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent, cornerRadius: radius), for: .normal)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.border, cornerRadius: radius), for: .disabled)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
 
         sendButton.layer.cornerRadius = radius
         sendButton.layer.masksToBounds = true
         
 
-        sendButton.imageView?.layer.shadowColor = UIColor.black.withAlphaComponent(0.35).cgColor
+        sendButton.imageView?.layer.shadowColor = UIColor.black.withAlphaComponent(0.22).cgColor
         sendButton.imageView?.layer.shadowOpacity = 1.0
         sendButton.imageView?.layer.shadowRadius = 2
         sendButton.imageView?.layer.shadowOffset = CGSize(width: 0, height: 1)
@@ -197,12 +227,14 @@ final class ChatInputBarViewController: UIViewController {
     }
 
     private func configureInputContainer() {
-        inputContainer.backgroundColor = .systemBackground
-        inputContainer.layer.cornerRadius = 24
-        inputContainer.layer.shadowColor = UIColor.black.cgColor
-        inputContainer.layer.shadowOpacity = 0.05
-        inputContainer.layer.shadowRadius = 8
-        inputContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
+        inputContainer.backgroundColor = AppTheme.surface
+        inputContainer.layer.cornerRadius = AppTheme.controlCornerRadius
+        inputContainer.layer.borderColor = AppTheme.border.cgColor
+        inputContainer.layer.borderWidth = AppTheme.borderWidth / UIScreen.main.scale
+        inputContainer.layer.shadowColor = AppTheme.shadow.cgColor
+        inputContainer.layer.shadowOpacity = 1
+        inputContainer.layer.shadowRadius = 12
+        inputContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
         inputContainer.clipsToBounds = false
 
         inputContainer.snp.makeConstraints { make in
@@ -226,7 +258,7 @@ final class ChatInputBarViewController: UIViewController {
 
         textView.backgroundColor = .clear
         textView.font = UIFont.preferredFont(forTextStyle: .body)
-        textView.textColor = .label
+        textView.textColor = AppTheme.textPrimary
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.lineBreakMode = .byCharWrapping
@@ -243,7 +275,7 @@ final class ChatInputBarViewController: UIViewController {
         }
 
         clearTextButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        clearTextButton.tintColor = .secondaryLabel
+        clearTextButton.tintColor = AppTheme.textTertiary
         clearTextButton.addTarget(self, action: #selector(didTapClearText), for: .touchUpInside)
         inputContainer.addSubview(clearTextButton)
         clearTextButton.snp.makeConstraints { make in
@@ -256,7 +288,7 @@ final class ChatInputBarViewController: UIViewController {
         let placeholder = UILabel()
         placeholder.text = "输入消息..."
         placeholder.font = textView.font
-        placeholder.textColor = .secondaryLabel
+        placeholder.textColor = AppTheme.textTertiary
         placeholder.numberOfLines = 1
         placeholder.tag = 999
         textView.addSubview(placeholder)
@@ -309,7 +341,7 @@ final class ChatInputBarViewController: UIViewController {
         let hasAny = !input.selectedImages.isEmpty
         let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
         photoButton.setImage(UIImage(systemName: hasAny ? "photo.fill" : "photo", withConfiguration: config), for: .normal)
-        photoButton.tintColor = hasAny ? .systemBlue : .secondaryLabel
+        photoButton.tintColor = hasAny ? AppTheme.accent : AppTheme.textSecondary
         photoButton.isEnabled = input.remainingSelectionLimit > 0
         photoButton.alpha = photoButton.isEnabled ? 1.0 : 0.4
     }

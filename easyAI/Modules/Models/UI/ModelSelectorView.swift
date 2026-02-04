@@ -16,6 +16,7 @@ struct ModelSelectorView: View {
     @Binding var selectedModel: AIModel?
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @State private var searchText: String = ""
     @State private var selectedInputFilters: Set<String> = []
     @State private var selectedOutputFilters: Set<String> = []
@@ -127,6 +128,8 @@ struct ModelSelectorView: View {
             }
             .navigationTitle("选择AI模型")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(AppThemeSwift.accent)
+            .id(themeManager.selection)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     refreshButton
@@ -148,15 +151,8 @@ struct ModelSelectorView: View {
     // MARK: - 主要视图组件
     
     private var backgroundGradient: some View {
-        LinearGradient(
-            gradient: Gradient(colors: [
-                Color(red: 0.95, green: 0.97, blue: 1.0),
-                Color(red: 0.98, green: 0.99, blue: 1.0)
-            ]),
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        AppThemeSwift.backgroundGradient
+            .ignoresSafeArea()
     }
     
     private var scrollContent: some View {
@@ -175,7 +171,7 @@ struct ModelSelectorView: View {
     private var searchBar: some View {
         HStack {
             Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
+                .foregroundColor(AppThemeSwift.textTertiary)
             
             TextField("搜索模型...", text: $searchText)
                 .textFieldStyle(.plain)
@@ -192,7 +188,7 @@ struct ModelSelectorView: View {
             HStack {
                 Text("筛选")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppThemeSwift.textSecondary)
                 Spacer()
                 Button(isFilterExpanded ? "收起" : "展开") {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -200,6 +196,7 @@ struct ModelSelectorView: View {
                     }
                 }
                 .font(.caption)
+                .foregroundColor(AppThemeSwift.textSecondary)
             }
 
             if isFilterExpanded {
@@ -222,8 +219,12 @@ struct ModelSelectorView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+                .fill(AppThemeSwift.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(AppThemeSwift.border, lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
         )
         .padding(.horizontal, 16)
     }
@@ -244,12 +245,12 @@ struct ModelSelectorView: View {
         Button(action: action) {
             Text(title)
                 .font(.caption)
-                .foregroundColor(isSelected ? .white : .primary)
+                .foregroundColor(isSelected ? .white : AppThemeSwift.textPrimary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color.blue : Color(.systemGray6))
+                        .fill(isSelected ? AppThemeSwift.accent : AppThemeSwift.surfaceAlt)
                 )
         }
         .buttonStyle(.plain)
@@ -259,7 +260,7 @@ struct ModelSelectorView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppThemeSwift.textSecondary)
             let columns = [GridItem(.adaptive(minimum: 80), spacing: 8)]
             LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                 ForEach(options, id: \.key) { option in
@@ -273,12 +274,12 @@ struct ModelSelectorView: View {
                     } label: {
                         Text(option.label)
                             .font(.caption)
-                            .foregroundColor(isSelected ? .white : .primary)
+                            .foregroundColor(isSelected ? .white : AppThemeSwift.textPrimary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(
                                 Capsule()
-                                    .fill(isSelected ? Color.blue : Color(.systemGray6))
+                                    .fill(isSelected ? AppThemeSwift.accent : AppThemeSwift.surfaceAlt)
                             )
                     }
                     .buttonStyle(.plain)
@@ -289,8 +290,12 @@ struct ModelSelectorView: View {
     
     private var searchBarBackground: some View {
         RoundedRectangle(cornerRadius: 12)
-            .fill(Color(.systemBackground))
-            .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+            .fill(AppThemeSwift.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(AppThemeSwift.border, lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
     }
     
     @ViewBuilder
@@ -301,7 +306,7 @@ struct ModelSelectorView: View {
                     .progressViewStyle(CircularProgressViewStyle())
                 Text("正在加载模型列表...")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppThemeSwift.textSecondary)
             }
             .padding()
         }
@@ -313,17 +318,18 @@ struct ModelSelectorView: View {
             VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.title2)
-                    .foregroundColor(.orange)
+                    .foregroundColor(AppThemeSwift.accent)
                 Text("加载失败")
                     .font(.headline)
                 Text(error)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppThemeSwift.textSecondary)
                     .multilineTextAlignment(.center)
                 Button("重试") {
                     fetchModels()
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(AppThemeSwift.accent)
             }
             .padding()
             .frame(maxWidth: .infinity)
@@ -405,7 +411,7 @@ struct ModelRow: View {
     let action: () -> Void
     
     var modelColor: Color {
-        return .gray
+        return AppThemeSwift.accent
     }
     
     /// 格式化输入/输出类型显示
@@ -469,7 +475,7 @@ struct ModelRow: View {
             Text(model.name)
                 .font(.headline)
                 .fontWeight(.semibold)
-                .foregroundColor(.primary)
+                .foregroundColor(AppThemeSwift.textPrimary)
             
             modalitiesView
         }
@@ -492,14 +498,14 @@ struct ModelRow: View {
         HStack(spacing: 4) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.caption2)
-                .foregroundColor(.blue)
+                .foregroundColor(AppThemeSwift.accent)
             Text("输入: \(formatModalities(model.inputModalities))")
                 .font(.caption2)
-                .foregroundColor(.blue)
+                .foregroundColor(AppThemeSwift.accent)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(Color.blue.opacity(0.1))
+        .background(AppThemeSwift.accent.opacity(0.12))
         .clipShape(Capsule())
     }
     
@@ -507,21 +513,21 @@ struct ModelRow: View {
         HStack(spacing: 4) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.caption2)
-                .foregroundColor(.green)
+                .foregroundColor(AppThemeSwift.accent2)
             Text("输出: \(formatModalities(model.outputModalities))")
                 .font(.caption2)
-                .foregroundColor(.green)
+                .foregroundColor(AppThemeSwift.accent2)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(Color.green.opacity(0.1))
+        .background(AppThemeSwift.accent2.opacity(0.12))
         .clipShape(Capsule())
     }
     
     private var modelDescription: some View {
         Text(model.description)
             .font(.subheadline)
-            .foregroundColor(.secondary)
+            .foregroundColor(AppThemeSwift.textSecondary)
             .lineLimit(2)
     }
 
@@ -531,7 +537,7 @@ struct ModelRow: View {
             Text(contextText)
         }
         .font(.caption2)
-        .foregroundColor(.secondary)
+        .foregroundColor(AppThemeSwift.textTertiary)
     }
 
     private var priceText: String {
@@ -579,14 +585,14 @@ struct ModelRow: View {
         Button(action: onToggleFavorite) {
             Image(systemName: isFavorite ? "star.fill" : "star")
                 .font(.system(size: 16))
-                .foregroundColor(isFavorite ? .yellow : .secondary)
+                .foregroundColor(isFavorite ? AppThemeSwift.accent : AppThemeSwift.textTertiary)
         }
         .buttonStyle(.plain)
     }
     
     private var checkmarkGradient: LinearGradient {
         LinearGradient(
-            colors: [.blue, .purple],
+            colors: [AppThemeSwift.accent, AppThemeSwift.accent2],
             startPoint: .leading,
             endPoint: .trailing
         )
@@ -594,12 +600,12 @@ struct ModelRow: View {
     
     private var backgroundView: some View {
         RoundedRectangle(cornerRadius: 16)
-            .fill(Color(.systemBackground))
+            .fill(AppThemeSwift.surface)
             .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowY)
     }
     
     private var shadowColor: Color {
-        isSelected ? modelColor.opacity(0.3) : Color.black.opacity(0.05)
+        isSelected ? modelColor.opacity(0.18) : Color.black.opacity(0.04)
     }
     
     private var shadowRadius: CGFloat {
@@ -616,7 +622,7 @@ struct ModelRow: View {
     }
     
     private var borderWidth: CGFloat {
-        isSelected ? 2 : 0
+        isSelected ? 1.5 : 0.8
     }
     
     private var borderGradient: LinearGradient {
@@ -629,7 +635,7 @@ struct ModelRow: View {
     
     private var selectedBorderGradient: LinearGradient {
         LinearGradient(
-            colors: [modelColor.opacity(0.6), modelColor.opacity(0.3)],
+            colors: [modelColor.opacity(0.7), modelColor.opacity(0.4)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -637,7 +643,7 @@ struct ModelRow: View {
     
     private var clearBorderGradient: LinearGradient {
         LinearGradient(
-            colors: [Color.clear],
+            colors: [AppThemeSwift.border],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )

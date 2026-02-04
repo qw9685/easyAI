@@ -82,7 +82,7 @@ final class ChatMessageMediaCell: ChatBaseBubbleCell {
         messageLabel.isHidden = !hasText
         messageLabel.text = message.content
         messageLabel.textAlignment = message.role == .user ? .right : .left
-        messageLabel.textColor = message.role == .user ? .white : .label
+        messageLabel.textColor = message.role == .user ? .white : AppTheme.textPrimary
         contentStack.alignment = message.role == .user ? .trailing : .leading
 
         let spacing: CGFloat = 8
@@ -188,7 +188,7 @@ private final class ChatMediaImageItemCell: UICollectionViewCell {
         let view = UIView()
         view.layer.cornerRadius = 12
         view.layer.masksToBounds = true
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.04)
+        view.backgroundColor = AppTheme.surfaceAlt
         return view
     }()
 

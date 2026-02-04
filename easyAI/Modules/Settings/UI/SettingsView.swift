@@ -13,6 +13,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var configManager = ConfigManager.shared
     @Environment(\.dismiss) private var dismiss
     
@@ -24,6 +25,14 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
+                Section(header: Text("外观"), footer: Text("主色调将立即应用到所有页面。")) {
+                    Picker("主色调", selection: $themeManager.selection) {
+                        ForEach(ThemeOption.allCases) { option in
+                            Text(option.name).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
                 // MARK: - API 配置
                 Section(header: Text("API 配置"), footer: Text("使用假数据模式时，将使用模拟响应，不需要 API Key。API Key 会安全存入 Keychain。")) {
                     Toggle("使用假数据模式", isOn: $configManager.useMockData)
@@ -37,9 +46,10 @@ struct SettingsView: View {
                             Text("打字机速度")
                             Spacer()
                             Text(String(format: "%.1fx", configManager.typewriterSpeed))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(AppThemeSwift.textSecondary)
                         }
                         Slider(value: $configManager.typewriterSpeed, in: 0.1...8.0, step: 0.1)
+                            .tint(AppThemeSwift.accent)
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -47,9 +57,10 @@ struct SettingsView: View {
                             Text("打字机刷新率")
                             Spacer()
                             Text("\(Int(configManager.typewriterRefreshRate)) fps")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(AppThemeSwift.textSecondary)
                         }
                         Slider(value: $configManager.typewriterRefreshRate, in: 5...120, step: 5)
+                            .tint(AppThemeSwift.accent)
                     }
 
                     Toggle("启用 phase 日志（turnId/itemId）", isOn: $configManager.enablephaseLogs)
@@ -66,20 +77,20 @@ struct SettingsView: View {
                     } label: {
                         HStack {
                             Text("选择模型")
-                                .foregroundColor(.primary)
+                                .foregroundColor(AppThemeSwift.textPrimary)
                             Spacer()
                             HStack(spacing: 6) {
                                 ModelAvatarView(name: fullModelName, provider: modelProvider, size: 20)
                                 Text(fullModelName)
                             }
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(AppThemeSwift.textSecondary)
                             .lineLimit(1)
                         }
                     }
 
                     HStack {
-                        Text("OpenRouter API Key")
+                            Text("OpenRouter API Key")
                         Spacer()
                         SecureField("sk-or-v1-...", text: $apiKeyText)
                             .textInputAutocapitalization(.never)
@@ -92,7 +103,7 @@ struct SettingsView: View {
                     }
                     
                     HStack {
-                        Text("最大 Token 数")
+                            Text("最大 Token 数")
                         Spacer()
                         TextField("1000", text: $maxTokensText)
                             .keyboardType(.numberPad)
@@ -136,6 +147,11 @@ struct SettingsView: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden)
+            .background(AppThemeSwift.backgroundGradient)
+            .tint(AppThemeSwift.accent)
+            .listRowBackground(AppThemeSwift.surface)
+            .listRowSeparatorTint(AppThemeSwift.border)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
@@ -159,6 +175,7 @@ struct SettingsView: View {
                     set: { viewModel.selectedModel = $0 }
                 ))
                 .environmentObject(viewModel)
+                .environmentObject(ThemeManager.shared)
             }
             .alert("确认删除", isPresented: $showDeleteConfirmation) {
                 Button("取消", role: .cancel) { }
@@ -169,6 +186,7 @@ struct SettingsView: View {
                 Text("确定要删除所有聊天消息吗？此操作无法撤销。")
             }
         }
+        .id(themeManager.selection)
     }
 
     private var fullModelName: String {

@@ -99,7 +99,7 @@ class ChatBaseBubbleCell: UITableViewCell {
         contentView.addSubview(timestampLabel)
 
         timestampLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
-        timestampLabel.textColor = .secondaryLabel
+        timestampLabel.textColor = AppTheme.textTertiary
         timestampLabel.numberOfLines = 1
         timestampLabel.isHidden = true
 
