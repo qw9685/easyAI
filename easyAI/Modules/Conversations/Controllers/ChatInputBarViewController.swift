@@ -11,14 +11,16 @@
 
 import UIKit
 import SnapKit
-import Combine
+import RxSwift
+import RxCocoa
 import PhotosUI
 
 final class ChatInputBarViewController: UIViewController {
     private let viewModel: ChatViewModel
+    private let actionHandler: ((ChatViewModel.Action) -> Void)?
     private let input = ChatInputViewModel()
 
-    private var cancellables: Set<AnyCancellable> = []
+    private let disposeBag = DisposeBag()
 
     private let topDivider = UIView()
     private let rootBackground = UIView()
@@ -51,8 +53,9 @@ final class ChatInputBarViewController: UIViewController {
     private var recognitionBaseText: String = ""
     private let speechManager = SpeechToTextManager.shared
 
-    init(viewModel: ChatViewModel) {
+    init(viewModel: ChatViewModel, actionHandler: ((ChatViewModel.Action) -> Void)? = nil) {
         self.viewModel = viewModel
+        self.actionHandler = actionHandler
 
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
@@ -62,6 +65,7 @@ final class ChatInputBarViewController: UIViewController {
         self.selectedImagesCollection = UICollectionView(frame: .zero, collectionViewLayout: layout)
 
         super.init(nibName: nil, bundle: nil)
+        input.actionHandler = actionHandler
     }
 
     required init?(coder: NSCoder) {
@@ -302,9 +306,9 @@ final class ChatInputBarViewController: UIViewController {
 
     private func bind() {
         // Input → UI
-        input.$inputText
-            .receive(on: RunLoop.main)
-            .sink { [weak self] text in
+        input.inputTextObservable
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] text in
                 guard let self else { return }
                 if self.textView.text != text {
                     self.textView.text = text
@@ -312,26 +316,28 @@ final class ChatInputBarViewController: UIViewController {
                 self.updatePlaceholder()
                 self.recalcTextHeight()
                 self.updateUI()
-            }
-            .store(in: &cancellables)
+            })
+            .disposed(by: disposeBag)
 
-        input.$selectedImages
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
+        input.selectedImagesObservable
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] _ in
                 guard let self else { return }
                 self.updateSelectedImagesBarVisibility()
                 self.selectedImagesCollection.collectionViewLayout.invalidateLayout()
                 self.selectedImagesCollection.reloadData()
                 self.selectedImagesCollection.layoutIfNeeded()
                 self.updateUI()
-            }
-            .store(in: &cancellables)
+            })
+            .disposed(by: disposeBag)
 
         // Chat state → UI
-        viewModel.$isLoading
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateUI() }
-            .store(in: &cancellables)
+        viewModel.isLoadingObservable
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] _ in
+                self?.updateUI()
+            })
+            .disposed(by: disposeBag)
     }
 
     private func updateUI() {

@@ -7,9 +7,12 @@
 
 import UIKit
 import SwiftUI
+import RxSwift
+import RxCocoa
 
 final class MainPagerViewController: UIViewController {
     private let viewModel: ChatViewModel
+    private let swiftUIAdapter: ChatViewModelSwiftUIAdapter
     private let pageViewController: UIPageViewController
     private let tabTitles = ["历史", "会话", "设置"]
 
@@ -21,12 +24,14 @@ final class MainPagerViewController: UIViewController {
 
     private var controllers: [UIViewController] = []
     private var currentIndex: Int = 1
+    private var isPageReady = false
+    private let pageTransitionDuration: CFTimeInterval = 0.28
     private var themeObserver: NSObjectProtocol?
-    private var switchObserver: NSObjectProtocol?
-    private var settingsObserver: NSObjectProtocol?
+    private let disposeBag = DisposeBag()
 
-    init(viewModel: ChatViewModel) {
+    init(viewModel: ChatViewModel, swiftUIAdapter: ChatViewModelSwiftUIAdapter) {
         self.viewModel = viewModel
+        self.swiftUIAdapter = swiftUIAdapter
         self.pageViewController = UIPageViewController(
             transitionStyle: .scroll,
             navigationOrientation: .horizontal
@@ -46,13 +51,17 @@ final class MainPagerViewController: UIViewController {
         updateNavTitle()
         updateTopBarButtons()
         observeThemeChanges()
-        observeSwitchToChat()
-        observeSwitchToSettings()
+        observeEvents()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: false)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isPageReady = true
     }
 
     override func viewDidLayoutSubviews() {
@@ -63,23 +72,17 @@ final class MainPagerViewController: UIViewController {
         if let themeObserver {
             NotificationCenter.default.removeObserver(themeObserver)
         }
-        if let switchObserver {
-            NotificationCenter.default.removeObserver(switchObserver)
-        }
-        if let settingsObserver {
-            NotificationCenter.default.removeObserver(settingsObserver)
-        }
     }
 
     private func setupControllers() {
-        let chatVC = ChatViewController(viewModel: viewModel)
+        let chatVC = ChatViewController(viewModel: viewModel, router: self)
         let historyView = HistoryConversationsListView()
-            .environmentObject(viewModel)
+            .environmentObject(swiftUIAdapter)
             .environmentObject(ThemeManager.shared)
         let historyVC = UIHostingController(rootView: historyView)
 
         let settingsView = SettingsView()
-            .environmentObject(viewModel)
+            .environmentObject(swiftUIAdapter)
             .environmentObject(ThemeManager.shared)
         let settingsVC = UIHostingController(rootView: settingsView)
 
@@ -166,24 +169,18 @@ final class MainPagerViewController: UIViewController {
         }
     }
 
-    private func observeSwitchToChat() {
-        switchObserver = NotificationCenter.default.addObserver(
-            forName: .switchToChatPage,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.switchTo(index: 1)
-        }
-    }
-
-    private func observeSwitchToSettings() {
-        settingsObserver = NotificationCenter.default.addObserver(
-            forName: .switchToSettingsPage,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.switchTo(index: 2)
-        }
+    private func observeEvents() {
+        viewModel.events
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] event in
+                switch event {
+                case .switchToChat:
+                    self?.switchTo(index: 1)
+                case .switchToSettings:
+                    self?.switchTo(index: 2)
+                }
+            })
+            .disposed(by: disposeBag)
     }
 
     private func applyTheme() {
@@ -246,7 +243,7 @@ final class MainPagerViewController: UIViewController {
     }
 
     @objc private func didTapChat() {
-        viewModel.startNewConversation()
+        viewModel.dispatch(.startNewConversation)
         switchTo(index: 1)
     }
 
@@ -259,21 +256,54 @@ final class MainPagerViewController: UIViewController {
     private func switchTo(index: Int) {
         guard index >= 0, index < controllers.count else { return }
         guard index != currentIndex else { return }
+        guard isPageReady else {
+            DispatchQueue.main.async { [weak self] in
+                self?.switchTo(index: index)
+            }
+            return
+        }
         let direction: UIPageViewController.NavigationDirection = index > currentIndex ? .forward : .reverse
-        currentIndex = index
+        pageViewController.view.layoutIfNeeded()
+        CATransaction.begin()
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        CATransaction.setAnimationDuration(pageTransitionDuration)
         pageViewController.setViewControllers(
-            [controllers[currentIndex]],
+            [controllers[index]],
             direction: direction,
             animated: true
-        )
-        updateNavTitle()
-        updateTopBarButtons()
+        ) { [weak self] completed in
+            guard let self, completed else { return }
+            self.currentIndex = index
+            self.updateNavTitle()
+            self.updateTopBarButtons()
+        }
+        CATransaction.commit()
     }
 
     private func ttsToggleImage() -> UIImage? {
         AppConfig.ttsMuted
             ? UIImage(systemName: "speaker.slash")
             : UIImage(systemName: "speaker.wave.2")
+    }
+}
+
+extension MainPagerViewController: ChatRouting {
+    func showSettings(from presenter: UIViewController) {
+        let settingsView = SettingsView()
+            .environmentObject(swiftUIAdapter)
+            .environmentObject(ThemeManager.shared)
+        let controller = UIHostingController(rootView: settingsView)
+        controller.modalPresentationStyle = .formSheet
+        presenter.present(controller, animated: true)
+    }
+
+    func showConversations(from presenter: UIViewController) {
+        let conversationView = HistoryConversationsListView()
+            .environmentObject(swiftUIAdapter)
+            .environmentObject(ThemeManager.shared)
+        let controller = UIHostingController(rootView: conversationView)
+        controller.modalPresentationStyle = .formSheet
+        presenter.present(controller, animated: true)
     }
 }
 

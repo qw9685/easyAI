@@ -12,7 +12,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var viewModel: ChatViewModelSwiftUIAdapter
     @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var configManager = ConfigManager.shared
     @Environment(\.dismiss) private var dismiss
@@ -175,12 +175,8 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
-                        Task {
-                            await viewModel.loadModels()
-                            await MainActor.run {
-                                dismiss()
-                            }
-                        }
+                        viewModel.dispatch(.loadModels(forceRefresh: false))
+                        dismiss()
                     }
                 }
             }
@@ -204,7 +200,7 @@ struct SettingsView: View {
             .alert("确认删除", isPresented: $showDeleteConfirmation) {
                 Button("取消", role: .cancel) { }
                 Button("删除", role: .destructive) {
-                    viewModel.clearMessages()
+                    viewModel.dispatch(.clearMessages)
                 }
             } message: {
                 Text("确定要删除所有聊天消息吗？此操作无法撤销。")
@@ -234,5 +230,6 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
-        .environmentObject(ChatViewModel())
+        .environmentObject(ChatViewModelSwiftUIAdapter(viewModel: ChatViewModel()))
+        .environmentObject(ThemeManager.shared)
 }

@@ -4,7 +4,5 @@
 <dict>
 	<key>OPENROUTER_API_KEY</key>
 	<string>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</string>
-	<key>UILaunchScreen</key>
-	<false/>
 </dict>
 </plist>

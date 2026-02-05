@@ -12,7 +12,7 @@
 import SwiftUI
 
 struct HistoryConversationsListView: View {
-    @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var viewModel: ChatViewModelSwiftUIAdapter
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
     @State private var renameConversation: ConversationRecord?
@@ -36,7 +36,7 @@ struct HistoryConversationsListView: View {
                                 await MainActor.run {
                                     clearSearch()
                                 }
-                                NotificationCenter.default.post(name: .switchToChatPage, object: nil)
+                                viewModel.emitEvent(.switchToChat)
                             }
                         } label: {
                             ConversationRow(
@@ -44,7 +44,12 @@ struct HistoryConversationsListView: View {
                                 searchMatch: searchResults[conversation.id],
                                 isSearching: isSearching
                             )
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 12)
+                            .background(AppThemeSwift.surface)
+                            .cornerRadius(14)
                         }
+                        .buttonStyle(.plain)
                         .disabled(viewModel.isSwitchingConversation)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button {
@@ -55,21 +60,24 @@ struct HistoryConversationsListView: View {
                                 Label("重命名", systemImage: "pencil")
                             }
                             Button {
-                                viewModel.setPinned(id: conversation.id, isPinned: !conversation.isPinned)
+                                viewModel.dispatch(.setPinned(id: conversation.id, isPinned: !conversation.isPinned))
                             } label: {
                                 Label(conversation.isPinned ? "取消置顶" : "置顶",
                                       systemImage: conversation.isPinned ? "pin.slash" : "pin")
                             }
                             .tint(.orange)
                             Button(role: .destructive) {
-                                viewModel.deleteConversation(id: conversation.id)
+                                viewModel.dispatch(.deleteConversation(conversation.id))
                             } label: {
                                 Label("删除", systemImage: "trash")
                             }
                         }
-                        .listRowBackground(AppThemeSwift.surface)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .listRowSeparator(.hidden)
             }
             .overlay(emptyStateView)
             .scrollContentBackground(.hidden)
@@ -90,7 +98,7 @@ struct HistoryConversationsListView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        viewModel.startNewConversation()
+                        viewModel.dispatch(.startNewConversation)
                         dismiss()
                     } label: {
                         Image(systemName: "plus")
@@ -98,7 +106,7 @@ struct HistoryConversationsListView: View {
                 }
             }
             .onAppear {
-                viewModel.loadConversations()
+                        viewModel.dispatch(.loadConversations)
             }
             .onChange(of: searchText) { newValue in
                 scheduleSearch(newValue)
@@ -111,7 +119,7 @@ struct HistoryConversationsListView: View {
                 }
                 Button("保存") {
                     if let conversation = renameConversation {
-                        viewModel.renameConversation(id: conversation.id, title: renameTitle)
+                        viewModel.dispatch(.renameConversation(id: conversation.id, title: renameTitle))
                     }
                     renameConversation = nil
                     showRenameAlert = false
@@ -145,7 +153,8 @@ struct HistoryConversationsListView: View {
         )
         .cornerRadius(12)
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder
@@ -197,7 +206,8 @@ struct HistoryConversationsListView: View {
         let lowerQuery = query.lowercased()
         var results: [String: ConversationSearchMatch] = [:]
 
-        for conversation in viewModel.conversations {
+        let conversations = await MainActor.run { viewModel.conversations }
+        for conversation in conversations {
             let titleRanges = findRanges(in: conversation.title, query: lowerQuery)
             var snippet: String?
             var snippetRanges: [Range<String.Index>] = []

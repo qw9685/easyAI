@@ -11,22 +11,32 @@
 
 
 import Foundation
-import SwiftUI
-import Combine
+import RxSwift
+import RxCocoa
 
-class ChatViewModel: ObservableObject {
-    @Published var messages: [Message] = [] {
+@MainActor
+final class ChatViewModel {
+    private var messages: [Message] = [] {
         didSet {
             emitSnapshotIfNeeded()
         }
     }
-    @Published var isLoading: Bool = false {
+    private(set) var isLoading: Bool = false {
         didSet {
+            isLoadingRelay.accept(isLoading)
             emitSnapshotIfNeeded()
         }
     }
-    @Published var errorMessage: String?
-    @Published private(set) var modelListState: ModelListState = .idle
+    private(set) var errorMessage: String? {
+        didSet {
+            errorMessageRelay.accept(errorMessage)
+        }
+    }
+    private(set) var modelListState: ModelListState = .idle {
+        didSet {
+            modelListStateRelay.accept(modelListState)
+        }
+    }
 
     var selectedModel: AIModel? {
         get { modelListState.selectedModel }
@@ -37,31 +47,118 @@ class ChatViewModel: ObservableObject {
     }
     var availableModels: [AIModel] { modelListState.models }
     var isLoadingModels: Bool { modelListState.isLoading }
-    @Published var conversations: [ConversationRecord] = []
-    @Published private(set) var listSnapshot: ChatListSnapshot = .empty
-    @Published private(set) var isSwitchingConversation: Bool = false
+    private(set) var conversations: [ConversationRecord] = [] {
+        didSet {
+            conversationsRelay.accept(conversations)
+        }
+    }
+    private(set) var listSnapshot: ChatListSnapshot = .empty {
+        didSet {
+            listSnapshotRelay.accept(listSnapshot)
+        }
+    }
+    private(set) var isSwitchingConversation: Bool = false {
+        didSet {
+            isSwitchingConversationRelay.accept(isSwitchingConversation)
+        }
+    }
     private var stopNotices: [ChatStopNotice] = []
+    private var inputDisposeBag = DisposeBag()
+    private let eventRelay = PublishRelay<Event>()
+    private let listSnapshotRelay = BehaviorRelay<ChatListSnapshot>(value: .empty)
+    private let conversationsRelay = BehaviorRelay<[ConversationRecord]>(value: [])
+    private let modelListStateRelay = BehaviorRelay<ModelListState>(value: .idle)
+    private let isSwitchingConversationRelay = BehaviorRelay<Bool>(value: false)
+    private let errorMessageRelay = BehaviorRelay<String?>(value: nil)
+    private let isLoadingRelay = BehaviorRelay<Bool>(value: false)
     
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
     private var isBatchingSnapshot: Bool = false
-    private var loadConversationsTask: Task<Void, Never>?
     
     private let chatService: ChatServiceProtocol
     private let contextBuilder: ChatContextBuilding
     private let turnRunner: ChatTurnRunner
     private let persistence: ChatMessagePersistence
-    private let conversationCoordinator: ConversationCoordinator
+    private let conversationUseCase: ConversationListUseCase
     private let sessionCoordinator: ChatSessionCoordinating
     private let modelSelection: ModelSelectionCoordinator
     private let turnIdFactory: ChatTurnIdFactory
     private let logger: ChatLogger
     private let sendMessageUseCase: ChatSendMessageUseCase
     private var activeSendTask: Task<Void, Never>?
-    @Published var currentConversationId: String? {
+    private var currentConversationId: String? {
         didSet { emitSnapshotIfNeeded() }
     }
+
+    struct SendPayload {
+        let content: String
+        let imageData: Data?
+        let imageMimeType: String?
+        let mediaContents: [MediaContent]
+    }
+
+    enum Event {
+        case switchToChat
+        case switchToSettings
+    }
+
+    enum Action {
+        case loadModels(forceRefresh: Bool)
+        case loadConversations
+        case startNewConversation
+        case selectConversation(String)
+        case renameConversation(id: String, title: String)
+        case setPinned(id: String, isPinned: Bool)
+        case deleteConversation(String)
+        case deleteMessage(UUID)
+        case sendMessage(SendPayload)
+        case stopGenerating
+        case clearMessages
+    }
+
+    struct Input {
+        let actions: Observable<Action>
+    }
+
+    struct Output {
+        let listSnapshot: Observable<ChatListSnapshot>
+        let conversations: Observable<[ConversationRecord]>
+        let modelListState: Observable<ModelListState>
+        let isSwitchingConversation: Observable<Bool>
+        let errorMessage: Observable<String?>
+        let events: Observable<Event>
+    }
+
+    var events: Observable<Event> {
+        eventRelay.asObservable()
+    }
+
+    var listSnapshotObservable: Observable<ChatListSnapshot> {
+        listSnapshotRelay.asObservable()
+    }
+
+    var conversationsObservable: Observable<[ConversationRecord]> {
+        conversationsRelay.asObservable()
+    }
+
+    var modelListStateObservable: Observable<ModelListState> {
+        modelListStateRelay.asObservable()
+    }
+
+    var isSwitchingConversationObservable: Observable<Bool> {
+        isSwitchingConversationRelay.asObservable()
+    }
+
+    var errorMessageObservable: Observable<String?> {
+        errorMessageRelay.asObservable()
+    }
+
+    var isLoadingObservable: Observable<Bool> {
+        isLoadingRelay.asObservable()
+    }
     
+    // MARK: - Models
     /// 应用启动时加载模型列表（从API获取）
     func loadModels(forceRefresh: Bool = false) async {
         await MainActor.run {
@@ -88,6 +185,7 @@ class ChatViewModel: ObservableObject {
     private let maxStoredMessages: Int = 200
     
     
+    // MARK: - Init
     init(chatService: ChatServiceProtocol = OpenRouterChatService.shared,
          modelRepository: ModelRepositoryProtocol = ModelRepository.shared,
          conversationRepository: ConversationRepository = ConversationRepository.shared,
@@ -99,10 +197,11 @@ class ChatViewModel: ObservableObject {
             conversationRepository: conversationRepository,
             messageRepository: messageRepository
         )
-        self.conversationCoordinator = ConversationCoordinator(
+        let conversationCoordinator = ConversationCoordinator(
             conversationRepository: conversationRepository,
             messageRepository: messageRepository
         )
+        self.conversationUseCase = ConversationListUseCase(coordinator: conversationCoordinator)
         self.sessionCoordinator = ChatSessionCoordinator()
         self.modelSelection = ModelSelectionCoordinator(modelRepository: modelRepository)
         self.turnIdFactory = ChatTurnIdFactory()
@@ -115,7 +214,77 @@ class ChatViewModel: ObservableObject {
         )
         bootstrapConversation()
     }
+
+    func transform(_ input: Input) -> Output {
+        inputDisposeBag = DisposeBag()
+        input.actions
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] action in
+                Task { @MainActor in
+                    self?.handle(action)
+                }
+            })
+            .disposed(by: inputDisposeBag)
+
+        return Output(
+            listSnapshot: listSnapshotRelay.asObservable(),
+            conversations: conversationsRelay.asObservable(),
+            modelListState: modelListStateRelay.asObservable(),
+            isSwitchingConversation: isSwitchingConversationRelay.asObservable(),
+            errorMessage: errorMessageRelay.asObservable(),
+            events: eventRelay.asObservable()
+        )
+    }
+
+    func dispatch(_ action: Action) {
+        if Thread.isMainThread {
+            handle(action)
+        } else {
+            Task { @MainActor in
+                handle(action)
+            }
+        }
+    }
+
+    @MainActor
+    private func handle(_ action: Action) {
+        switch action {
+        case .loadModels(let forceRefresh):
+            Task { await loadModels(forceRefresh: forceRefresh) }
+        case .loadConversations:
+            loadConversations()
+        case .startNewConversation:
+            startNewConversation()
+        case .selectConversation(let id):
+            Task { await selectConversationAfterLoaded(id: id) }
+        case .renameConversation(let id, let title):
+            renameConversation(id: id, title: title)
+        case .setPinned(let id, let isPinned):
+            setPinned(id: id, isPinned: isPinned)
+        case .deleteConversation(let id):
+            deleteConversation(id: id)
+        case .deleteMessage(let id):
+            deleteMessage(id: id)
+        case .sendMessage(let payload):
+            startSendMessage(
+                payload.content,
+                imageData: payload.imageData,
+                imageMimeType: payload.imageMimeType,
+                mediaContents: payload.mediaContents
+            )
+        case .stopGenerating:
+            stopGenerating()
+        case .clearMessages:
+            clearMessages()
+        }
+    }
+
+    @MainActor
+    func emitEvent(_ event: Event) {
+        eventRelay.accept(event)
+    }
     
+    // MARK: - Conversations
     func loadConversations() {
         scheduleLoadConversations(debounceMs: 0)
     }
@@ -154,20 +323,7 @@ class ChatViewModel: ObservableObject {
     }
 
     private func fetchMessagesInBackground(conversationId: String) async throws -> [Message] {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else {
-                    continuation.resume(returning: [])
-                    return
-                }
-                do {
-                    let messages = try self.conversationCoordinator.fetchMessages(conversationId: conversationId)
-                    continuation.resume(returning: messages)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        try await conversationUseCase.fetchMessagesInBackground(conversationId: conversationId)
     }
     
     func renameConversation(id: String, title: String) {
@@ -175,12 +331,13 @@ class ChatViewModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
         Task {
             do {
-                try conversationCoordinator.renameConversation(id: id, title: trimmed)
+                try conversationUseCase.renameConversation(id: id, title: trimmed)
                 await MainActor.run {
-                    if let index = self.conversations.firstIndex(where: { $0.id == id }) {
-                        self.conversations[index].title = trimmed
-                        self.conversations[index].updatedAt = Date()
-                    }
+                    self.conversations = self.conversationUseCase.applyRename(
+                        id: id,
+                        title: trimmed,
+                        conversations: self.conversations
+                    )
                 }
             } catch {
                 print("[ChatViewModel] ⚠️ Failed to rename conversation: \(error)")
@@ -191,16 +348,13 @@ class ChatViewModel: ObservableObject {
     func setPinned(id: String, isPinned: Bool) {
         Task {
             do {
-                try conversationCoordinator.setPinned(id: id, isPinned: isPinned)
+                try conversationUseCase.setPinned(id: id, isPinned: isPinned)
                 await MainActor.run {
-                    if let index = self.conversations.firstIndex(where: { $0.id == id }) {
-                        self.conversations[index].isPinned = isPinned
-                        self.conversations[index].updatedAt = Date()
-                        self.conversations = self.conversations.sorted {
-                            if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
-                            return $0.updatedAt > $1.updatedAt
-                        }
-                    }
+                    self.conversations = self.conversationUseCase.applyPinned(
+                        id: id,
+                        isPinned: isPinned,
+                        conversations: self.conversations
+                    )
                 }
             } catch {
                 print("[ChatViewModel] ⚠️ Failed to update pin: \(error)")
@@ -211,9 +365,12 @@ class ChatViewModel: ObservableObject {
     func deleteConversation(id: String) {
         Task {
             do {
-                try conversationCoordinator.deleteConversationAndMessages(id: id)
+                try conversationUseCase.deleteConversation(id: id)
                 await MainActor.run {
-                    self.conversations.removeAll { $0.id == id }
+                    self.conversations = self.conversationUseCase.removeConversation(
+                        id: id,
+                        conversations: self.conversations
+                    )
                     if self.currentConversationId == id {
                         self.currentConversationId = nil
                         self.messages = []
@@ -226,6 +383,7 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Messages
     func deleteMessage(id: UUID) {
         messages.removeAll { $0.id == id }
         if stopNotices.contains(where: { $0.messageId == id }) {
@@ -234,13 +392,14 @@ class ChatViewModel: ObservableObject {
         }
         Task {
             do {
-                try conversationCoordinator.deleteMessage(id: id.uuidString)
+                try conversationUseCase.deleteMessage(id: id.uuidString)
             } catch {
                 print("[ChatViewModel] ⚠️ Failed to delete message: \(error)")
             }
         }
     }
     
+    /// UI 入口：开始发送
     @MainActor
     func startSendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) {
         activeSendTask?.cancel()
@@ -254,6 +413,7 @@ class ChatViewModel: ObservableObject {
         activeSendTask = task
     }
 
+    /// UI 入口：停止当前生成
     @MainActor
     func stopGenerating() {
         activeSendTask?.cancel()
@@ -284,6 +444,7 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    /// 发送入口（实际执行在 UseCase 内部）
     @MainActor
     func sendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) async {
         let env = ChatSendMessageEnvironment(
@@ -301,7 +462,10 @@ class ChatViewModel: ObservableObject {
                 self.batchSnapshotUpdate(updates)
             },
             setIsLoading: { self.isLoading = $0 },
-            setErrorMessage: { self.errorMessage = $0 }
+            setErrorMessage: { self.errorMessage = $0 },
+            emitEvent: { event in
+                self.emitEvent(event)
+            }
         )
 
         await sendMessageUseCase.execute(
@@ -313,6 +477,7 @@ class ChatViewModel: ObservableObject {
         )
     }
     
+    // MARK: - Snapshot
     @MainActor
     func clearMessages() {
         clearStopNotices()
@@ -360,6 +525,7 @@ class ChatViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Persistence
     private func persistMessage(_ message: Message) async {
         guard let conversationId = currentConversationId else { return }
         do {
@@ -393,6 +559,7 @@ class ChatViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Context
     private func buildMessagesForRequest(currentUserMessage: Message) -> [Message] {
         contextBuilder.buildMessagesForRequest(
             allMessages: messages,
@@ -413,13 +580,14 @@ class ChatViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Conversation Creation
     @MainActor
     private func ensureConversation() -> Bool {
         if currentConversationId != nil {
             return true
         }
         do {
-            let conversation = try conversationCoordinator.createConversation()
+            let conversation = try conversationUseCase.createConversation()
             currentConversationId = conversation.id
             conversationId = UUID()
             currentTurnId = nil
@@ -433,6 +601,7 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    /// 应用会话快照到 UI 状态
     private func applySessionSnapshot(_ snapshot: ChatSessionSnapshot) {
         batchSnapshotUpdate {
             currentConversationId = snapshot.currentConversationId
@@ -444,6 +613,7 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    /// 批量更新：避免 snapshot 重算
     private func batchSnapshotUpdate(_ updates: () -> Void) {
         let wasBatching = isBatchingSnapshot
         isBatchingSnapshot = true
@@ -468,6 +638,7 @@ class ChatViewModel: ObservableObject {
         )
     }
 
+    /// “停止生成”的 UI 提示（不写入 DB）
     private func appendStopNotice(_ notice: ChatStopNotice) {
         if let messageId = notice.messageId,
            let index = stopNotices.firstIndex(where: { $0.messageId == messageId }) {
@@ -485,35 +656,29 @@ class ChatViewModel: ObservableObject {
     }
 
     private func scheduleLoadConversations(debounceMs: Int = 150) {
-        loadConversationsTask?.cancel()
-        loadConversationsTask = Task { [weak self] in
-            guard let self else { return }
-            if debounceMs > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(debounceMs) * 1_000_000)
-            }
-            guard !Task.isCancelled else { return }
-            do {
-                let records = try self.conversationCoordinator.fetchAllConversations()
-                await MainActor.run {
-                    self.conversations = records
-                }
-            } catch {
+        conversationUseCase.loadConversations(
+            debounceMs: debounceMs,
+            onLoaded: { [weak self] records in
+                self?.conversations = records
+            },
+            onError: { error in
                 print("[ChatViewModel] ⚠️ Failed to load conversations: \(error)")
             }
-        }
+        )
     }
 
     @MainActor
     private func applyConversationTouch(conversationId: String, touchedAt: Date) {
-        guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else {
+        switch conversationUseCase.applyConversationTouch(
+            conversationId: conversationId,
+            touchedAt: touchedAt,
+            conversations: conversations
+        ) {
+        case .updated(let updated):
+            conversations = updated
+        case .needsReload:
             // 极少数情况下（内存列表未同步），fallback 一次全量刷新。
             scheduleLoadConversations(debounceMs: 150)
-            return
-        }
-        conversations[index].updatedAt = touchedAt
-        conversations = conversations.sorted {
-            if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
-            return $0.updatedAt > $1.updatedAt
         }
     }
     

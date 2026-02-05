@@ -13,19 +13,27 @@ import UIKit
 import SnapKit
 import RxSwift
 import RxCocoa
-import SwiftUI
 
 final class ChatViewController: UIViewController {
     private let viewModel: ChatViewModel
+    private weak var router: ChatRouting?
     private let listViewModel = ChatListViewModel()
     private let tableViewController = ChatTableViewController()
-    private lazy var inputBarController = ChatInputBarViewController(viewModel: viewModel)
+    private let actionRelay = PublishRelay<ChatViewModel.Action>()
+    private var output: ChatViewModel.Output?
+    private lazy var inputBarController = ChatInputBarViewController(
+        viewModel: viewModel,
+        actionHandler: { [weak self] action in
+            self?.actionRelay.accept(action)
+        }
+    )
     private let disposeBag = DisposeBag()
     private let backgroundGradient = CAGradientLayer()
     private var themeObserver: NSObjectProtocol?
     
-    init(viewModel: ChatViewModel) {
+    init(viewModel: ChatViewModel, router: ChatRouting? = nil) {
         self.viewModel = viewModel
+        self.router = router
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -142,10 +150,13 @@ final class ChatViewController: UIViewController {
     }
     
     private func bindViewModel() {
+        output = viewModel.transform(
+            ChatViewModel.Input(actions: actionRelay.asObservable())
+        )
         listViewModel.bind(container: viewModel)
         tableViewController.bind(viewModel: listViewModel)
         tableViewController.onDeleteMessage = { [weak self] message in
-            self?.viewModel.deleteMessage(id: message.id)
+            self?.actionRelay.accept(.deleteMessage(message.id))
         }
         tableViewController.onSelectText = { [weak self] message in
             self?.presentTextSelection(for: message)
@@ -159,9 +170,7 @@ final class ChatViewController: UIViewController {
     
     private func loadModelsIfNeeded() {
         if viewModel.availableModels.isEmpty {
-            Task {
-                await viewModel.loadModels()
-            }
+            actionRelay.accept(.loadModels(forceRefresh: false))
         }
     }
 
@@ -175,20 +184,10 @@ final class ChatViewController: UIViewController {
     }
     
     @objc private func showSettings() {
-        let settingsView = SettingsView()
-            .environmentObject(viewModel)
-            .environmentObject(ThemeManager.shared)
-        let controller = UIHostingController(rootView: settingsView)
-        controller.modalPresentationStyle = .formSheet
-        present(controller, animated: true)
+        router?.showSettings(from: self)
     }
     
     @objc private func showConversations() {
-        let conversationView = HistoryConversationsListView()
-            .environmentObject(viewModel)
-            .environmentObject(ThemeManager.shared)
-        let controller = UIHostingController(rootView: conversationView)
-        controller.modalPresentationStyle = .formSheet
-        present(controller, animated: true)
+        router?.showConversations(from: self)
     }
 }

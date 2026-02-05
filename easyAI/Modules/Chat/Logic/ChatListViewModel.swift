@@ -10,11 +10,10 @@
 //
 
 import Foundation
-import Combine
 import RxSwift
 import RxCocoa
 
-final class ChatListViewModel: ObservableObject {
+final class ChatListViewModel {
     let stateRelay = BehaviorRelay<ChatListState>(
         value: ChatListState(messages: [], isLoading: false, conversationId: nil, stopNotices: [], sections: [ChatSection(items: [])])
     )
@@ -22,7 +21,6 @@ final class ChatListViewModel: ObservableObject {
     private let stateBuilder: ChatListStateBuilding
     
     private var disposeBag = DisposeBag()
-    private var cancellables: Set<AnyCancellable> = []
     private weak var boundContainer: ChatViewModel?
     private var lastConversationId: String?
     private(set) var isUserAtBottom: Bool = true
@@ -37,10 +35,10 @@ final class ChatListViewModel: ObservableObject {
         if boundContainer === container { return }
         boundContainer = container
         disposeBag = DisposeBag()
-        cancellables.removeAll()
         
-        container.$listSnapshot
-            .sink { [weak self] snapshot in
+        container.listSnapshotObservable
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] snapshot in
                 guard let self else { return }
                 if self.lastConversationId != snapshot.conversationId {
                     self.lastConversationId = snapshot.conversationId
@@ -49,8 +47,8 @@ final class ChatListViewModel: ObservableObject {
                     return
                 }
                 self.snapshotRelay.accept(snapshot)
-            }
-            .store(in: &cancellables)
+            })
+            .disposed(by: disposeBag)
 
         snapshotRelay
             .asObservable()

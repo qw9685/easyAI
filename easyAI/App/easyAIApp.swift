@@ -14,18 +14,21 @@ import SwiftUI
 
 @main
 struct easyAIApp: App {
-    @StateObject private var chatViewModel = ChatViewModel()
+    private let chatViewModel: ChatViewModel
+    @StateObject private var chatAdapter: ChatViewModelSwiftUIAdapter
     @StateObject private var themeManager = ThemeManager.shared
-    
+
     init() {
-        // 初始化配置管理器，确保配置被加载
         _ = ConfigManager.shared
+        let viewModel = AppContainer.shared.makeChatViewModel()
+        self.chatViewModel = viewModel
+        _chatAdapter = StateObject(wrappedValue: ChatViewModelSwiftUIAdapter(viewModel: viewModel))
     }
-    
+
     var body: some Scene {
         WindowGroup {
-            ChatRootView()
-                .environmentObject(chatViewModel)
+            ChatRootView(viewModel: chatViewModel)
+                .environmentObject(chatAdapter)
                 .environmentObject(themeManager)
         }
     }

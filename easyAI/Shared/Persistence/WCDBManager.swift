@@ -18,6 +18,7 @@ enum WCDBTables {
     static let modelCache = "model_cache"
 }
 
+/// WCDB 入口（创建 DB + 初始化表结构/索引）
 final class WCDBManager {
     static let shared = WCDBManager()
 
@@ -32,6 +33,9 @@ final class WCDBManager {
         setupSchema()
     }
 
+    /// Schema 初始化（幂等）
+    /// - v1: conversation/message 表 + 索引
+    /// - v2: model_cache 表 + 索引
     private func setupSchema() {
         do {
             let currentVersion = UserDefaults.standard.integer(forKey: versionKey)

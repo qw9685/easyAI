@@ -15,7 +15,7 @@ import Foundation
 struct ModelSelectorView: View {
     @Binding var selectedModel: AIModel?
     @Environment(\.dismiss) var dismiss
-    @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var viewModel: ChatViewModelSwiftUIAdapter
     @EnvironmentObject var themeManager: ThemeManager
     @State private var searchText: String = ""
     @State private var selectedInputFilters: Set<String> = []
@@ -388,9 +388,7 @@ struct ModelSelectorView: View {
         if !forceRefresh && hasFetchedData {
             return
         }
-        Task {
-            await viewModel.loadModels(forceRefresh: forceRefresh)
-        }
+        viewModel.dispatch(.loadModels(forceRefresh: forceRefresh))
     }
 
     private func toggleFavorite(_ model: AIModel) {

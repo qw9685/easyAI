@@ -163,6 +163,7 @@ class ConfigManager: ObservableObject {
         self.ttsMuted = UserDefaults.standard.object(forKey: ttsMutedKey) as? Bool ?? false
         self.ttsVoiceIdentifier = UserDefaults.standard.string(forKey: ttsVoiceIdentifierKey)
 
+        // TTS 参数做合法区间 clamp，避免写入非法值导致系统播放异常
         let storedTtsRate = UserDefaults.standard.object(forKey: ttsRateKey) as? Double
         let minRate = Double(AVSpeechUtteranceMinimumSpeechRate)
         let maxRate = Double(AVSpeechUtteranceMaximumSpeechRate)

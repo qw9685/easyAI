@@ -40,8 +40,6 @@ final class ThemeManager: ObservableObject {
 
 extension Notification.Name {
     static let themeDidChange = Notification.Name("ThemeManager.themeDidChange")
-    static let switchToChatPage = Notification.Name("MainPager.switchToChatPage")
-    static let switchToSettingsPage = Notification.Name("MainPager.switchToSettingsPage")
 }
 
 struct ThemePalette {

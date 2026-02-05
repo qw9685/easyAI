@@ -11,10 +11,11 @@
 
 import Foundation
 import UIKit
-import Combine
+import RxSwift
+import RxCocoa
 
 @MainActor
-final class ChatInputViewModel: ObservableObject {
+final class ChatInputViewModel {
     struct SelectedImage: Identifiable, Equatable {
         let id: UUID
         let image: UIImage
@@ -25,30 +26,31 @@ final class ChatInputViewModel: ObservableObject {
         }
     }
 
-    @Published var inputText: String = ""
-    @Published private(set) var selectedImages: [SelectedImage] = []
+    private let inputTextRelay = BehaviorRelay<String>(value: "")
+    private let selectedImagesRelay = BehaviorRelay<[SelectedImage]>(value: [])
+    var actionHandler: ((ChatViewModel.Action) -> Void)?
 
     let maxImageCount: Int = 5
 
     var shouldShowClearButton: Bool {
-        !inputText.isEmpty
+        !inputTextRelay.value.isEmpty
     }
 
     func isSendDisabled(isChatLoading: Bool) -> Bool {
         if isChatLoading {
             return false
         }
-        let textIsEmpty = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let noImage = selectedImages.isEmpty
+        let textIsEmpty = inputTextRelay.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let noImage = selectedImagesRelay.value.isEmpty
         let hasNoContent = textIsEmpty && noImage
         return hasNoContent
     }
 
     func clearText() {
-        inputText = ""
+        inputTextRelay.accept("")
     }
 
-    func clearSelectedImages() { selectedImages = [] }
+    func clearSelectedImages() { selectedImagesRelay.accept([]) }
 
     func clearAll() {
         inputText = ""
@@ -56,7 +58,7 @@ final class ChatInputViewModel: ObservableObject {
     }
 
     var remainingSelectionLimit: Int {
-        max(0, maxImageCount - selectedImages.count)
+        max(0, maxImageCount - selectedImagesRelay.value.count)
     }
 
     func addSelectedImageData(_ data: Data) {
@@ -64,16 +66,23 @@ final class ChatInputViewModel: ObservableObject {
         guard let image = UIImage(data: data) else { return }
         let mimeType = Self.detectImageMimeType(data)
         let media = MediaContent(id: UUID(), type: .image, data: data, mimeType: mimeType, fileName: nil)
-        selectedImages.append(SelectedImage(id: media.id, image: image, media: media))
+        var updated = selectedImagesRelay.value
+        updated.append(SelectedImage(id: media.id, image: image, media: media))
+        selectedImagesRelay.accept(updated)
     }
 
     func removeSelectedImage(id: UUID) {
-        selectedImages.removeAll { $0.id == id }
+        let updated = selectedImagesRelay.value.filter { $0.id != id }
+        selectedImagesRelay.accept(updated)
     }
 
     func send(chatViewModel: ChatViewModel) {
         if chatViewModel.isLoading {
-            chatViewModel.stopGenerating()
+            if let actionHandler {
+                actionHandler(.stopGenerating)
+            } else {
+                chatViewModel.stopGenerating()
+            }
             return
         }
 
@@ -81,12 +90,39 @@ final class ChatInputViewModel: ObservableObject {
             return
         }
 
-        let message = inputText
-        let mediaContents = selectedImages.map { $0.media }
+        let message = inputTextRelay.value
+        let mediaContents = selectedImagesRelay.value.map { $0.media }
 
         clearAll()
 
-        chatViewModel.startSendMessage(message, mediaContents: mediaContents)
+        if let actionHandler {
+            let payload = ChatViewModel.SendPayload(
+                content: message,
+                imageData: nil,
+                imageMimeType: nil,
+                mediaContents: mediaContents
+            )
+            actionHandler(.sendMessage(payload))
+        } else {
+            chatViewModel.startSendMessage(message, mediaContents: mediaContents)
+        }
+    }
+
+    var inputText: String {
+        get { inputTextRelay.value }
+        set { inputTextRelay.accept(newValue) }
+    }
+
+    var selectedImages: [SelectedImage] {
+        selectedImagesRelay.value
+    }
+
+    var inputTextObservable: Observable<String> {
+        inputTextRelay.asObservable()
+    }
+
+    var selectedImagesObservable: Observable<[SelectedImage]> {
+        selectedImagesRelay.asObservable()
     }
 
     static func detectImageMimeType(_ data: Data) -> String {

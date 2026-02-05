@@ -25,6 +25,7 @@ struct ChatSendMessageEnvironment {
     var batchUpdate: @MainActor (_ updates: () -> Void) -> Void
     var setIsLoading: @MainActor (Bool) -> Void
     var setErrorMessage: @MainActor (String?) -> Void
+    var emitEvent: @MainActor (_ event: ChatViewModel.Event) -> Void
 }
 
 @MainActor
@@ -58,7 +59,7 @@ final class ChatSendMessageUseCase {
         let apiKey = AppConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !AppConfig.useMockData, apiKey.isEmpty {
             env.setErrorMessage("请先在设置中填写 OpenRouter API Key")
-            NotificationCenter.default.post(name: .switchToSettingsPage, object: nil)
+            env.emitEvent(.switchToSettings)
             return
         }
 
