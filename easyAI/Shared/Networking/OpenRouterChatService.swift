@@ -53,11 +53,12 @@ final class OpenRouterChatService: ChatServiceProtocol {
 
     func sendMessageStream(messages: [Message], model: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     if AppConfig.useMockData {
                         let mockContent = try await mockResponse(messages: messages, model: model)
                         for char in mockContent {
+                            try Task.checkCancellation()
                             continuation.yield(String(char))
                             try await Task.sleep(nanoseconds: 20_000_000)
                         }
@@ -65,8 +66,10 @@ final class OpenRouterChatService: ChatServiceProtocol {
                         return
                     }
 
+                    try Task.checkCancellation()
                     let request = try buildRequest(messages: messages, model: model, stream: true)
                     let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+                    try Task.checkCancellation()
                     guard let httpResponse = response as? HTTPURLResponse else {
                         throw OpenRouterError.invalidResponse
                     }
@@ -74,6 +77,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
                     if httpResponse.statusCode != 200 {
                         var errorData = Data()
                         for try await byte in asyncBytes {
+                            try Task.checkCancellation()
                             errorData.append(byte)
                         }
                         _ = try validate(response: response, data: errorData, model: model)
@@ -82,12 +86,16 @@ final class OpenRouterChatService: ChatServiceProtocol {
                     }
 
                     for try await delta in parser.parse(asyncBytes: asyncBytes) {
+                        try Task.checkCancellation()
                         continuation.yield(delta)
                     }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }

@@ -54,6 +54,7 @@ final class ChatSendMessageUseCase {
         mediaContents: [MediaContent] = [],
         env: ChatSendMessageEnvironment
     ) async {
+        var streamingMessageId: UUID?
         let apiKey = AppConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !AppConfig.useMockData, apiKey.isEmpty {
             env.setErrorMessage("请先在设置中填写 OpenRouter API Key")
@@ -123,6 +124,7 @@ final class ChatSendMessageUseCase {
                     itemId: assistantMessageItemId
                 )
                 env.appendMessage(assistantMessage)
+                streamingMessageId = assistantMessage.id
                 TextToSpeechManager.shared.startStreamingSession()
 
                 let messageId = assistantMessage.id
@@ -254,6 +256,7 @@ final class ChatSendMessageUseCase {
                 )
 
                 env.appendMessage(assistantMessage)
+                streamingMessageId = assistantMessage.id
 
                 let messageId = assistantMessage.id
                 let typewriterConfig = ChatTypewriter.Config(
@@ -292,6 +295,23 @@ final class ChatSendMessageUseCase {
             TextToSpeechManager.shared.finishStreamingSession()
             activeTypewriter?.cancel()
             activeTypewriter = nil
+            if Task.isCancelled || error is CancellationError {
+                TextToSpeechManager.shared.stop()
+                var updated: Message?
+                env.batchUpdate {
+                    env.setIsLoading(false)
+                    if let messageId = streamingMessageId {
+                        updated = env.finalizeStreamingMessage(messageId)
+                    }
+                }
+                if let updated {
+                    await env.updatePersistedMessage(updated)
+                }
+                env.setCurrentTurnId(nil)
+                logger.phase("turn end | baseId=\(baseId) | reason=cancelled")
+                return
+            }
+
             let errorDesc = error.localizedDescription
             env.setErrorMessage(errorDesc)
             env.batchUpdate {
@@ -304,6 +324,12 @@ final class ChatSendMessageUseCase {
             }
             logger.phase("turn end | baseId=\(baseId) | reason=error | error=\(errorDesc)")
         }
+    }
+
+    func cancelActive() {
+        activeTypewriter?.cancel()
+        activeTypewriter = nil
+        TextToSpeechManager.shared.stop()
     }
 }
 

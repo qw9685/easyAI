@@ -91,7 +91,7 @@ final class ChatTableViewController: UIViewController {
 
         // 2) planner 决定每次 state 应该走 diff（sectionsRelay.accept）还是 streaming-only 局部刷新
         statePairs
-            .subscribe(onNext: { [weak self] pair in
+            .subscribe(onNext: { [weak self] (pair: (prev: ChatListState?, curr: ChatListState)) in
                 guard let self else { return }
                 switch ChatTableUpdatePlanner.plan(prev: pair.prev, curr: pair.curr) {
                 case .bindSections:
@@ -206,6 +206,7 @@ final class ChatTableViewController: UIViewController {
         tableView.register(ChatMessageSendCell.self, forCellReuseIdentifier: ChatMessageSendCell.reuseIdentifier)
         tableView.register(ChatMessageMediaCell.self, forCellReuseIdentifier: ChatMessageMediaCell.reuseIdentifier)
         tableView.register(ChatLoadingCell.self, forCellReuseIdentifier: ChatLoadingCell.reuseIdentifier)
+        tableView.register(ChatStopNoticeCell.self, forCellReuseIdentifier: ChatStopNoticeCell.reuseIdentifier)
         
         tableView.backgroundView = ChatEmptyStateView()
         updateEmptyState()
@@ -235,7 +236,8 @@ extension ChatTableViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         guard let item = item(at: indexPath) else { return 0 }
         switch item {
-        case .messageMarkdown(let message) where message.isStreaming && message.content.isEmpty:
+        case .messageMarkdown(let message, let statusText)
+            where message.isStreaming && message.content.isEmpty && (statusText == nil || statusText?.isEmpty == true):
             return CGFloat.leastNonzeroMagnitude
         default:
             return UITableView.automaticDimension
@@ -249,11 +251,14 @@ extension ChatTableViewController: UITableViewDelegate {
             return 35
         case .messageMedia:
             return 170
-        case .messageMarkdown(let message) where message.isStreaming && message.content.isEmpty:
+        case .messageMarkdown(let message, let statusText)
+            where message.isStreaming && message.content.isEmpty && (statusText == nil || statusText?.isEmpty == true):
             return 0
-        case .messageMarkdown:
+        case .messageMarkdown(_, _):
             return tableView.estimatedRowHeight
         case .messageSend:
+            return tableView.estimatedRowHeight
+        case .stopNotice:
             return tableView.estimatedRowHeight
         }
     }
@@ -321,13 +326,13 @@ private extension ChatTableViewController {
     func messageForRow(at indexPath: IndexPath) -> Message? {
         guard let row = item(at: indexPath) else { return nil }
         switch row {
-        case .messageMarkdown(let message):
+        case .messageMarkdown(let message, _):
             return message
         case .messageSend(let message):
             return message
         case .messageMedia(let message):
             return message
-        case .loading:
+        case .loading, .stopNotice:
             return nil
         }
     }

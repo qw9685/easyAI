@@ -35,10 +35,13 @@ final class ChatInputViewModel: ObservableObject {
     }
 
     func isSendDisabled(isChatLoading: Bool) -> Bool {
+        if isChatLoading {
+            return false
+        }
         let textIsEmpty = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let noImage = selectedImages.isEmpty
         let hasNoContent = textIsEmpty && noImage
-        return hasNoContent || isChatLoading
+        return hasNoContent
     }
 
     func clearText() {
@@ -69,6 +72,11 @@ final class ChatInputViewModel: ObservableObject {
     }
 
     func send(chatViewModel: ChatViewModel) {
+        if chatViewModel.isLoading {
+            chatViewModel.stopGenerating()
+            return
+        }
+
         guard !isSendDisabled(isChatLoading: chatViewModel.isLoading) else {
             return
         }
@@ -78,9 +86,7 @@ final class ChatInputViewModel: ObservableObject {
 
         clearAll()
 
-        Task {
-            await chatViewModel.sendMessage(message, mediaContents: mediaContents)
-        }
+        chatViewModel.startSendMessage(message, mediaContents: mediaContents)
     }
 
     static func detectImageMimeType(_ data: Data) -> String {

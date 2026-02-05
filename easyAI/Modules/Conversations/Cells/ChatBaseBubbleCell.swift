@@ -15,6 +15,7 @@ class ChatBaseBubbleCell: UITableViewCell {
     let bubbleView = BubbleBackgroundView()
     let bubbleContentView = UIView()
     private let timestampLabel = UILabel()
+    private let statusLabel = UILabel()
 
     private let defaultBubbleBackgroundPadding = UIEdgeInsets.zero
     private var bubbleBackgroundPadding: UIEdgeInsets = .zero
@@ -30,6 +31,9 @@ class ChatBaseBubbleCell: UITableViewCell {
     private var contentMinTrailingConstraint: Constraint?
     private var timestampLeadingConstraint: Constraint?
     private var timestampTrailingConstraint: Constraint?
+    private var timestampTopToBubbleConstraint: Constraint?
+    private var timestampTopToStatusConstraint: Constraint?
+    private var statusHeightConstraint: Constraint?
 
     private(set) var isUser: Bool = false
 
@@ -47,11 +51,28 @@ class ChatBaseBubbleCell: UITableViewCell {
         super.prepareForReuse()
         timestampLabel.text = nil
         timestampLabel.isHidden = true
+        statusLabel.text = nil
+        statusLabel.isHidden = true
+        statusHeightConstraint?.update(offset: 0)
     }
 
-    func configureBase(role: MessageRole, timestamp: Date?, showTimestamp: Bool) {
+    func configureBase(role: MessageRole, timestamp: Date?, showTimestamp: Bool, statusText: String? = nil) {
         isUser = role == .user
         bubbleView.isUser = isUser
+
+        if let statusText, !statusText.isEmpty {
+            statusLabel.isHidden = false
+            statusLabel.text = statusText
+            statusHeightConstraint?.update(offset: 14)
+            timestampTopToBubbleConstraint?.deactivate()
+            timestampTopToStatusConstraint?.activate()
+        } else {
+            statusLabel.isHidden = true
+            statusLabel.text = nil
+            statusHeightConstraint?.update(offset: 0)
+            timestampTopToStatusConstraint?.deactivate()
+            timestampTopToBubbleConstraint?.activate()
+        }
 
         if showTimestamp, let timestamp {
             timestampLabel.isHidden = false
@@ -65,11 +86,12 @@ class ChatBaseBubbleCell: UITableViewCell {
     }
 
     /// 以 `Message` 作为统一输入，默认规则：流式期间不显示时间；流式结束后显示时间。
-    func configureBase(message: Message, showTimestamp: Bool? = nil) {
+    func configureBase(message: Message, showTimestamp: Bool? = nil, statusText: String? = nil) {
         configureBase(
             role: message.role,
             timestamp: message.timestamp,
-            showTimestamp: showTimestamp ?? !message.isStreaming
+            showTimestamp: showTimestamp ?? !message.isStreaming,
+            statusText: statusText
         )
     }
 
@@ -96,12 +118,18 @@ class ChatBaseBubbleCell: UITableViewCell {
 
         contentView.addSubview(bubbleView)
         contentView.addSubview(bubbleContentView)
+        contentView.addSubview(statusLabel)
         contentView.addSubview(timestampLabel)
 
         timestampLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
         timestampLabel.textColor = AppTheme.textTertiary
         timestampLabel.numberOfLines = 1
         timestampLabel.isHidden = true
+
+        statusLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
+        statusLabel.textColor = AppTheme.textSecondary
+        statusLabel.numberOfLines = 1
+        statusLabel.isHidden = true
 
         bubbleView.snp.makeConstraints { make in
             bubbleTopConstraint = make.top.equalTo(bubbleContentView.snp.top).offset(-bubbleBackgroundPadding.top).constraint
@@ -120,12 +148,23 @@ class ChatBaseBubbleCell: UITableViewCell {
             contentMinTrailingConstraint = make.trailing.lessThanOrEqualToSuperview().inset(16).constraint
         }
 
-        timestampLabel.snp.makeConstraints { make in
+        statusLabel.snp.makeConstraints { make in
             make.top.equalTo(bubbleView.snp.bottom).offset(4)
+            statusHeightConstraint = make.height.equalTo(0).constraint
+            make.leading.equalTo(bubbleView.snp.leading).offset(4)
+            make.trailing.equalTo(bubbleView.snp.trailing).inset(4)
+        }
+
+        timestampLabel.snp.makeConstraints { make in
+            timestampTopToBubbleConstraint = make.top.equalTo(bubbleView.snp.bottom).offset(4).constraint
+            timestampTopToStatusConstraint = make.top.equalTo(statusLabel.snp.bottom).offset(2).constraint
             make.bottom.equalToSuperview().inset(8)
             timestampLeadingConstraint = make.leading.equalTo(bubbleView.snp.leading).offset(4).constraint
             timestampTrailingConstraint = make.trailing.equalTo(bubbleView.snp.trailing).inset(4).constraint
         }
+
+        timestampTopToStatusConstraint?.deactivate()
+        timestampTopToBubbleConstraint?.activate()
 
         updateAlignment(isUser: false)
         setBubbleBackgroundPadding(defaultBubbleBackgroundPadding)
@@ -139,6 +178,7 @@ class ChatBaseBubbleCell: UITableViewCell {
             contentMinLeadingConstraint?.activate()
 
             timestampLabel.textAlignment = .right
+            statusLabel.textAlignment = .right
             timestampLeadingConstraint?.deactivate()
             timestampTrailingConstraint?.activate()
         } else {
@@ -148,6 +188,7 @@ class ChatBaseBubbleCell: UITableViewCell {
             contentMinTrailingConstraint?.activate()
 
             timestampLabel.textAlignment = .left
+            statusLabel.textAlignment = .left
             timestampTrailingConstraint?.deactivate()
             timestampLeadingConstraint?.activate()
         }

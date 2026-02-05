@@ -20,6 +20,7 @@ enum ChatTableUpdatePlanner {
         guard let prev else { return .bindSections }
         if prev.conversationId != curr.conversationId { return .bindSections }
         if prev.isLoading != curr.isLoading { return .bindSections }
+        if prev.stopNotices != curr.stopNotices { return .bindSections }
         if prev.messages.count != curr.messages.count { return .bindSections }
         guard curr.messages.count > 0 else { return .bindSections }
 

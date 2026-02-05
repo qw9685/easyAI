@@ -28,6 +28,8 @@ final class ChatInputBarViewController: UIViewController {
     private let sendButton = UIButton(type: .system)
     private var sendEnabledImage: UIImage?
     private var sendDisabledImage: UIImage?
+    private var stopBaseImage: UIImage?
+    private let sendButtonSize: CGFloat = 32
 
     private let inputContainer = UIView()
     private let selectedImagesCollection: UICollectionView
@@ -168,11 +170,10 @@ final class ChatInputBarViewController: UIViewController {
         micButton.tintColor = isRecognizing ? AppTheme.accent : AppTheme.textSecondary
         micIndicator.backgroundColor = AppTheme.accent
 
-        let size: CGFloat = 32
-        let radius: CGFloat = size / 2
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent, cornerRadius: radius), for: .normal)
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.border, cornerRadius: radius), for: .disabled)
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
+        let radius: CGFloat = sendButtonSize / 2
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.accent, cornerRadius: radius), for: .normal)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.border, cornerRadius: radius), for: .disabled)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
 
         if let placeholder = textView.viewWithTag(999) as? UILabel {
             placeholder.textColor = AppTheme.textTertiary
@@ -191,19 +192,21 @@ final class ChatInputBarViewController: UIViewController {
     }
 
     private func configureSendButton() {
-        let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .bold)
-        let base = UIImage(systemName: "arrow.up", withConfiguration: config)
+        let sendConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .bold)
+        let stopConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .black)
+        let base = UIImage(systemName: "arrow.up", withConfiguration: sendConfig)
+        let stopBase = UIImage(systemName: "stop.fill", withConfiguration: stopConfig)
         sendEnabledImage = base?.withTintColor(.white, renderingMode: .alwaysOriginal)
         sendDisabledImage = base?.withTintColor(UIColor.white.withAlphaComponent(0.55), renderingMode: .alwaysOriginal)
+        stopBaseImage = stopBase
         
         sendButton.setImage(sendEnabledImage, for: .normal)
         sendButton.setImage(sendDisabledImage, for: .disabled)
         
-        let size: CGFloat = 32
-        let radius: CGFloat = size / 2
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent, cornerRadius: radius), for: .normal)
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.border, cornerRadius: radius), for: .disabled)
-        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: size, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
+        let radius: CGFloat = sendButtonSize / 2
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.accent, cornerRadius: radius), for: .normal)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.border, cornerRadius: radius), for: .disabled)
+        sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
 
         sendButton.layer.cornerRadius = radius
         sendButton.layer.masksToBounds = true
@@ -216,7 +219,7 @@ final class ChatInputBarViewController: UIViewController {
 
         sendButton.addTarget(self, action: #selector(didTapSend), for: .touchUpInside)
         sendButton.snp.makeConstraints { make in
-            make.width.height.equalTo(32)
+            make.width.height.equalTo(sendButtonSize)
         }
     }
 
@@ -334,9 +337,32 @@ final class ChatInputBarViewController: UIViewController {
     private func updateUI() {
         clearTextButton.isHidden = input.inputText.isEmpty
 
-        let isDisabled = input.isSendDisabled(isChatLoading: viewModel.isLoading)
-        sendButton.isEnabled = !isDisabled
-        sendButton.setImage(isDisabled ? sendDisabledImage : sendEnabledImage, for: .normal)
+        let isLoading = viewModel.isLoading
+        let isDisabled = input.isSendDisabled(isChatLoading: isLoading)
+        sendButton.isEnabled = isLoading ? true : !isDisabled
+        if isLoading {
+            let radius: CGFloat = sendButtonSize / 2
+            sendButton.setBackgroundImage(
+                Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.surface, cornerRadius: radius),
+                for: .normal
+            )
+            sendButton.setBackgroundImage(
+                Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.surfaceAlt, cornerRadius: radius),
+                for: .highlighted
+            )
+            sendButton.layer.borderWidth = 1.2
+            sendButton.layer.borderColor = AppTheme.accent.cgColor
+            let stopImage = stopBaseImage?.withTintColor(AppTheme.accent, renderingMode: .alwaysOriginal)
+            sendButton.setImage(stopImage, for: .normal)
+        } else {
+            let radius: CGFloat = sendButtonSize / 2
+            sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.accent, cornerRadius: radius), for: .normal)
+            sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.border, cornerRadius: radius), for: .disabled)
+            sendButton.setBackgroundImage(Self.circleBackgroundImage(size: sendButtonSize, color: AppTheme.accent2, cornerRadius: radius), for: .highlighted)
+            sendButton.layer.borderWidth = 0
+            sendButton.layer.borderColor = UIColor.clear.cgColor
+            sendButton.setImage(isDisabled ? sendDisabledImage : sendEnabledImage, for: .normal)
+        }
 
         let hasAny = !input.selectedImages.isEmpty
         let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)

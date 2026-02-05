@@ -40,8 +40,8 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
         }
     }
     
-    func configure(with message: Message) {
-        configureBase(message: message)
+    func configure(with message: Message, statusText: String?) {
+        configureBase(message: message, statusText: statusText)
         
         setBubbleHidden(message.content.isEmpty)
         blocksStack.isHidden = message.content.isEmpty

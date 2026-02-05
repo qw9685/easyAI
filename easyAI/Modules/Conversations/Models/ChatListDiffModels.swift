@@ -15,23 +15,27 @@ struct ChatListState {
     let messages: [Message]
     let isLoading: Bool
     let conversationId: String?
+    let stopNotices: [ChatStopNotice]
     let sections: [ChatSection]
 }
 
 enum ChatRow: IdentifiableType, Equatable {
-    case messageMarkdown(Message)
+    case messageMarkdown(Message, statusText: String?)
     case messageSend(Message)
     case messageMedia(Message)
+    case stopNotice(ChatStopNotice)
     case loading
     
     var identity: String {
         switch self {
-        case .messageMarkdown(let message):
+        case .messageMarkdown(let message, _):
             return "\(message.id.uuidString)|markdown"
         case .messageSend(let message):
             return "\(message.id.uuidString)|send"
         case .messageMedia(let message):
             return "\(message.id.uuidString)|media"
+        case .stopNotice(let notice):
+            return "stopNotice|\(notice.messageId?.uuidString ?? "none")|\(notice.timestamp.timeIntervalSince1970)"
         case .loading:
             return "loading"
         }
@@ -41,12 +45,15 @@ enum ChatRow: IdentifiableType, Equatable {
         switch (lhs, rhs) {
         case (.loading, .loading):
             return true
-        case (.messageMarkdown(let left), .messageMarkdown(let right)):
+        case (.stopNotice(let left), .stopNotice(let right)):
+            return left == right
+        case (.messageMarkdown(let left, let leftStatus), .messageMarkdown(let right, let rightStatus)):
             return left.id == right.id
                 && left.content == right.content
                 && left.isStreaming == right.isStreaming
                 && left.wasStreamed == right.wasStreamed
                 && left.role == right.role
+                && leftStatus == rightStatus
         case (.messageSend(let left), .messageSend(let right)):
             return left.id == right.id
                 && left.content == right.content

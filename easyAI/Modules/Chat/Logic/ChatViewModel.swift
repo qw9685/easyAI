@@ -40,6 +40,7 @@ class ChatViewModel: ObservableObject {
     @Published var conversations: [ConversationRecord] = []
     @Published private(set) var listSnapshot: ChatListSnapshot = .empty
     @Published private(set) var isSwitchingConversation: Bool = false
+    private var stopNotices: [ChatStopNotice] = []
     
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
@@ -56,6 +57,7 @@ class ChatViewModel: ObservableObject {
     private let turnIdFactory: ChatTurnIdFactory
     private let logger: ChatLogger
     private let sendMessageUseCase: ChatSendMessageUseCase
+    private var activeSendTask: Task<Void, Never>?
     @Published var currentConversationId: String? {
         didSet { emitSnapshotIfNeeded() }
     }
@@ -119,12 +121,14 @@ class ChatViewModel: ObservableObject {
     }
     
     func startNewConversation() {
+        clearStopNotices()
         applySessionSnapshot(sessionCoordinator.startNewConversation())
     }
 
     /// 用于“会话列表点击后，等数据加载完再切换”的体验：不会短暂展示上一会话内容。
     func selectConversationAfterLoaded(id: String) async {
         await MainActor.run {
+            clearStopNotices()
             isSwitchingConversation = true
         }
 
@@ -213,6 +217,7 @@ class ChatViewModel: ObservableObject {
                     if self.currentConversationId == id {
                         self.currentConversationId = nil
                         self.messages = []
+                        self.clearStopNotices()
                     }
                 }
             } catch {
@@ -223,6 +228,10 @@ class ChatViewModel: ObservableObject {
 
     func deleteMessage(id: UUID) {
         messages.removeAll { $0.id == id }
+        if stopNotices.contains(where: { $0.messageId == id }) {
+            stopNotices.removeAll { $0.messageId == id }
+            emitSnapshot()
+        }
         Task {
             do {
                 try conversationCoordinator.deleteMessage(id: id.uuidString)
@@ -232,6 +241,49 @@ class ChatViewModel: ObservableObject {
         }
     }
     
+    @MainActor
+    func startSendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) {
+        activeSendTask?.cancel()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.sendMessage(content, imageData: imageData, imageMimeType: imageMimeType, mediaContents: mediaContents)
+            await MainActor.run {
+                self.activeSendTask = nil
+            }
+        }
+        activeSendTask = task
+    }
+
+    @MainActor
+    func stopGenerating() {
+        activeSendTask?.cancel()
+        activeSendTask = nil
+        sendMessageUseCase.cancelActive()
+
+        guard isLoading else { return }
+        var updatedMessage: Message?
+        var noticeMessageId: UUID?
+        batchSnapshotUpdate {
+            isLoading = false
+            if let index = messages.lastIndex(where: { $0.isStreaming }) {
+                messages[index].isStreaming = false
+                messages[index].wasStreamed = true
+                updatedMessage = messages[index]
+                noticeMessageId = messages[index].id
+            }
+            currentTurnId = nil
+        }
+
+        let notice = ChatStopNotice(messageId: noticeMessageId, text: "已停止", timestamp: Date())
+        appendStopNotice(notice)
+
+        if let updatedMessage {
+            Task {
+                await updatePersistedMessage(updatedMessage)
+            }
+        }
+    }
+
     @MainActor
     func sendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) async {
         let env = ChatSendMessageEnvironment(
@@ -263,6 +315,7 @@ class ChatViewModel: ObservableObject {
     
     @MainActor
     func clearMessages() {
+        clearStopNotices()
         applySessionSnapshot(sessionCoordinator.clearMessages())
         logger.phase("conversation reset | conversationId=\(conversationId.uuidString)")
         Task {
@@ -273,7 +326,7 @@ class ChatViewModel: ObservableObject {
     /// 统一追加消息并做数量裁剪，避免内存无限增长
     private func appendMessage(_ message: Message) {
         messages.append(message)
-        
+
         Task {
             await persistMessage(message)
         }
@@ -387,6 +440,7 @@ class ChatViewModel: ObservableObject {
             conversationId = snapshot.conversationId
             turnIdFactory.conversationId = snapshot.conversationId
             currentTurnId = snapshot.currentTurnId
+            stopNotices.removeAll()
         }
     }
 
@@ -409,8 +463,25 @@ class ChatViewModel: ObservableObject {
         listSnapshot = ChatListSnapshot(
             messages: messages,
             isLoading: isLoading,
-            conversationId: currentConversationId
+            conversationId: currentConversationId,
+            stopNotices: stopNotices
         )
+    }
+
+    private func appendStopNotice(_ notice: ChatStopNotice) {
+        if let messageId = notice.messageId,
+           let index = stopNotices.firstIndex(where: { $0.messageId == messageId }) {
+            stopNotices[index] = notice
+        } else {
+            stopNotices.append(notice)
+        }
+        emitSnapshot()
+    }
+
+    private func clearStopNotices() {
+        guard !stopNotices.isEmpty else { return }
+        stopNotices.removeAll()
+        emitSnapshot()
     }
 
     private func scheduleLoadConversations(debounceMs: Int = 150) {

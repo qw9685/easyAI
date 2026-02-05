@@ -16,13 +16,17 @@ protocol ChatListStateBuilding {
 
 struct ChatListStateBuilder: ChatListStateBuilding {
     func build(from snapshot: ChatListSnapshot) -> ChatListState {
-        let items = ChatRowBuilder.build(messages: snapshot.messages, isLoading: snapshot.isLoading)
+        let items = ChatRowBuilder.build(
+            messages: snapshot.messages,
+            isLoading: snapshot.isLoading,
+            stopNotices: snapshot.stopNotices
+        )
         return ChatListState(
             messages: snapshot.messages,
             isLoading: snapshot.isLoading,
             conversationId: snapshot.conversationId,
+            stopNotices: snapshot.stopNotices,
             sections: [ChatSection(items: items)]
         )
     }
 }
-

@@ -50,6 +50,9 @@ final class TextToSpeechManager: NSObject {
         }
         speechQueue.removeAll()
         isQueuePlaying = false
+        pendingStreamBuffer.removeAll()
+        lastStreamedText = ""
+        isStreamingSessionActive = false
         deactivateAudioSession()
     }
 

@@ -16,7 +16,7 @@ import RxCocoa
 
 final class ChatListViewModel: ObservableObject {
     let stateRelay = BehaviorRelay<ChatListState>(
-        value: ChatListState(messages: [], isLoading: false, conversationId: nil, sections: [ChatSection(items: [])])
+        value: ChatListState(messages: [], isLoading: false, conversationId: nil, stopNotices: [], sections: [ChatSection(items: [])])
     )
     private let snapshotRelay = BehaviorRelay<ChatListSnapshot>(value: .empty)
     private let stateBuilder: ChatListStateBuilding
@@ -120,6 +120,7 @@ final class ChatListViewModel: ObservableObject {
     private func isSnapshotEqual(_ lhs: ChatListSnapshot, _ rhs: ChatListSnapshot) -> Bool {
         if lhs.conversationId != rhs.conversationId { return false }
         if lhs.isLoading != rhs.isLoading { return false }
+        if lhs.stopNotices != rhs.stopNotices { return false }
         if lhs.messages.count != rhs.messages.count { return false }
         guard let left = lhs.messages.last, let right = rhs.messages.last else { return true }
         if left.id != right.id { return false }

@@ -21,12 +21,12 @@ enum ChatTableDataSourceFactory {
             ),
             configureCell: { _, tableView, indexPath, item in
                 switch item {
-                case .messageMarkdown(let message):
+                case .messageMarkdown(let message, let statusText):
                     let cell = tableView.dequeueReusableCell(
                         withIdentifier: ChatMessageMarkdownCell.reuseIdentifier,
                         for: indexPath
                     ) as? ChatMessageMarkdownCell
-                    cell?.configure(with: message)
+                    cell?.configure(with: message, statusText: statusText)
                     return cell ?? UITableViewCell()
                 case .messageSend(let message):
                     let cell = tableView.dequeueReusableCell(
@@ -48,6 +48,13 @@ enum ChatTableDataSourceFactory {
                         for: indexPath
                     ) as? ChatLoadingCell
                     cell?.configure()
+                    return cell ?? UITableViewCell()
+                case .stopNotice(let notice):
+                    let cell = tableView.dequeueReusableCell(
+                        withIdentifier: ChatStopNoticeCell.reuseIdentifier,
+                        for: indexPath
+                    ) as? ChatStopNoticeCell
+                    cell?.configure(notice: notice)
                     return cell ?? UITableViewCell()
                 }
             }

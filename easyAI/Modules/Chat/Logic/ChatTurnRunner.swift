@@ -42,6 +42,9 @@ final class ChatTurnRunner {
         let startTime = Date()
 
         for try await chunk in chatService.sendMessageStream(messages: messages, model: model) {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
             chunkCount += 1
             fullContent += chunk
             await onProgress(ChatStreamProgress(chunkCount: chunkCount, fullContent: fullContent))
@@ -51,4 +54,3 @@ final class ChatTurnRunner {
         return ChatStreamResult(fullContent: fullContent, chunkCount: chunkCount, durationMs: durationMs)
     }
 }
-

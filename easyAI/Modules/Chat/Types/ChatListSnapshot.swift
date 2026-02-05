@@ -14,7 +14,13 @@ struct ChatListSnapshot {
     var messages: [Message]
     var isLoading: Bool
     var conversationId: String?
+    var stopNotices: [ChatStopNotice]
 
-    static let empty = ChatListSnapshot(messages: [], isLoading: false, conversationId: nil)
+    static let empty = ChatListSnapshot(messages: [], isLoading: false, conversationId: nil, stopNotices: [])
 }
 
+struct ChatStopNotice: Equatable {
+    let messageId: UUID?
+    let text: String
+    let timestamp: Date
+}
