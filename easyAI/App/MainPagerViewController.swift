@@ -9,33 +9,33 @@ import UIKit
 import SwiftUI
 import RxSwift
 import RxCocoa
+import SnapKit
 
 final class MainPagerViewController: UIViewController {
     private let viewModel: ChatViewModel
     private let swiftUIAdapter: ChatViewModelSwiftUIAdapter
-    private let pageViewController: UIPageViewController
-    private let tabTitles = ["历史", "会话", "设置"]
-
-    private let topBarView = UIView()
-    private let leftButton = UIButton(type: .system)
-    private let rightButton = UIButton(type: .system)
-    private let ttsButton = UIButton(type: .system)
-    private let titleLabel = UILabel()
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
 
     private var controllers: [UIViewController] = []
     private var currentIndex: Int = 1
-    private var isPageReady = false
-    private let pageTransitionDuration: CFTimeInterval = 0.28
-    private var themeObserver: NSObjectProtocol?
+    private let pageTransitionDuration: TimeInterval = 0.28
+    private var pageAnimator: UIViewPropertyAnimator?
+    private var lastScrollSize: CGSize = .zero
     private let disposeBag = DisposeBag()
+
+    private lazy var historyBackButton = makeBarButton(
+        systemName: "bubble.left",
+        action: #selector(handleBackToChat)
+    )
+    private lazy var settingsBackButton = makeBarButton(
+        systemName: "bubble.left",
+        action: #selector(handleBackToChat)
+    )
 
     init(viewModel: ChatViewModel, swiftUIAdapter: ChatViewModelSwiftUIAdapter) {
         self.viewModel = viewModel
         self.swiftUIAdapter = swiftUIAdapter
-        self.pageViewController = UIPageViewController(
-            transitionStyle: .scroll,
-            navigationOrientation: .horizontal
-        )
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -48,125 +48,93 @@ final class MainPagerViewController: UIViewController {
         setupControllers()
         setupUI()
         applyTheme()
-        updateNavTitle()
-        updateTopBarButtons()
         observeThemeChanges()
         observeEvents()
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        navigationController?.setNavigationBarHidden(true, animated: false)
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        isPageReady = true
-    }
-
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-    }
-
-    deinit {
-        if let themeObserver {
-            NotificationCenter.default.removeObserver(themeObserver)
-        }
+        let size = scrollView.bounds.size
+        guard size.width > 0, size != lastScrollSize else { return }
+        lastScrollSize = size
+        let offset = CGPoint(x: size.width * CGFloat(currentIndex), y: 0)
+        scrollView.setContentOffset(offset, animated: false)
     }
 
     private func setupControllers() {
         let chatVC = ChatViewController(viewModel: viewModel, router: self)
-        let historyView = HistoryConversationsListView()
+        let historyView = HistoryConversationsListView(isEmbeddedInPager: true)
             .environmentObject(swiftUIAdapter)
             .environmentObject(ThemeManager.shared)
         let historyVC = UIHostingController(rootView: historyView)
+        historyVC.navigationItem.titleView = makeTitleLabel("会话")
+        historyVC.navigationItem.largeTitleDisplayMode = .never
+        historyVC.navigationItem.rightBarButtonItem = UIBarButtonItem(customView: historyBackButton)
 
-        let settingsView = SettingsView()
+        let settingsView = SettingsView(isEmbeddedInPager: true)
             .environmentObject(swiftUIAdapter)
             .environmentObject(ThemeManager.shared)
         let settingsVC = UIHostingController(rootView: settingsView)
+        settingsVC.navigationItem.titleView = makeTitleLabel("设置")
+        settingsVC.navigationItem.largeTitleDisplayMode = .never
+        settingsVC.navigationItem.leftBarButtonItem = UIBarButtonItem(customView: settingsBackButton)
 
-        controllers = [historyVC, chatVC, settingsVC]
+        let historyNav = UINavigationController(rootViewController: historyVC)
+        let chatNav = UINavigationController(rootViewController: chatVC)
+        let settingsNav = UINavigationController(rootViewController: settingsVC)
+
+        controllers = [historyNav, chatNav, settingsNav]
+    }
+
+    private func embedControllers() {
+        controllers.forEach { controller in
+            addChild(controller)
+            contentStack.addArrangedSubview(controller.view)
+            controller.didMove(toParent: self)
+            controller.view.snp.makeConstraints { make in
+                make.width.equalTo(scrollView.frameLayoutGuide)
+            }
+        }
     }
 
     private func setupUI() {
         view.backgroundColor = AppTheme.canvas
 
-        setupTopBar()
+        scrollView.isPagingEnabled = true
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceVertical = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.isDirectionalLockEnabled = true
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.delegate = self
 
-        addChild(pageViewController)
-        view.addSubview(pageViewController.view)
-        pageViewController.didMove(toParent: self)
-        pageViewController.dataSource = self
-        pageViewController.delegate = self
-        pageViewController.setViewControllers(
-            [controllers[currentIndex]],
-            direction: .forward,
-            animated: false
-        )
+        contentStack.axis = .horizontal
+        contentStack.alignment = .fill
+        contentStack.distribution = .fillEqually
 
-        pageViewController.view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            pageViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            pageViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            pageViewController.view.topAnchor.constraint(equalTo: topBarView.bottomAnchor),
-            pageViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentStack)
 
-    private func setupTopBar() {
-        topBarView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(topBarView)
+        embedControllers()
 
-        leftButton.setImage(UIImage(systemName: "clock"), for: .normal)
-        rightButton.setImage(UIImage(systemName: "gearshape"), for: .normal)
-        ttsButton.setImage(ttsToggleImage(), for: .normal)
-        leftButton.addTarget(self, action: #selector(didTapHistory), for: .touchUpInside)
-        rightButton.addTarget(self, action: #selector(didTapSettings), for: .touchUpInside)
-        ttsButton.addTarget(self, action: #selector(didTapTtsToggle), for: .touchUpInside)
-
-        [leftButton, rightButton, ttsButton, titleLabel].forEach { item in
-            item.translatesAutoresizingMaskIntoConstraints = false
-            topBarView.addSubview(item)
+        scrollView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
         }
 
-        titleLabel.textAlignment = .center
-        titleLabel.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
-
-        NSLayoutConstraint.activate([
-            topBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            topBarView.heightAnchor.constraint(equalToConstant: 44),
-
-            leftButton.leadingAnchor.constraint(equalTo: topBarView.leadingAnchor, constant: 16),
-            leftButton.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor),
-            leftButton.widthAnchor.constraint(equalToConstant: 28),
-            leftButton.heightAnchor.constraint(equalToConstant: 28),
-
-            rightButton.trailingAnchor.constraint(equalTo: topBarView.trailingAnchor, constant: -16),
-            rightButton.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor),
-            rightButton.widthAnchor.constraint(equalToConstant: 28),
-            rightButton.heightAnchor.constraint(equalToConstant: 28),
-
-            ttsButton.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor, constant: -12),
-            ttsButton.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor),
-            ttsButton.widthAnchor.constraint(equalToConstant: 28),
-            ttsButton.heightAnchor.constraint(equalToConstant: 28),
-
-            titleLabel.centerXAnchor.constraint(equalTo: topBarView.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor)
-        ])
+        contentStack.snp.makeConstraints { make in
+            make.edges.equalTo(scrollView.contentLayoutGuide)
+            make.height.equalTo(scrollView.frameLayoutGuide)
+        }
     }
 
     private func observeThemeChanges() {
-        themeObserver = NotificationCenter.default.addObserver(
-            forName: .themeDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyTheme()
-        }
+        ThemeManager.shared.themeRelay
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] _ in
+                self?.applyTheme()
+            })
+            .disposed(by: disposeBag)
     }
 
     private func observeEvents() {
@@ -185,160 +153,124 @@ final class MainPagerViewController: UIViewController {
 
     private func applyTheme() {
         view.backgroundColor = AppTheme.canvas
-        topBarView.backgroundColor = .white
-        titleLabel.textColor = AppTheme.textPrimary
-
-        leftButton.tintColor = AppTheme.textPrimary
-        rightButton.tintColor = AppTheme.textPrimary
-        ttsButton.tintColor = AppTheme.textPrimary
-    }
-
-    private func updateNavTitle() {
-        titleLabel.text = tabTitles[currentIndex]
-    }
-
-    private func updateTopBarButtons() {
-        switch currentIndex {
-        case 1:
-            // Chat: left -> history, right -> settings, tts -> toggle
-            leftButton.isHidden = false
-            rightButton.isHidden = false
-            ttsButton.isHidden = false
-            leftButton.setImage(UIImage(systemName: "clock"), for: .normal)
-            rightButton.setImage(UIImage(systemName: "gearshape"), for: .normal)
-            ttsButton.setImage(ttsToggleImage(), for: .normal)
-            leftButton.removeTarget(nil, action: nil, for: .allEvents)
-            rightButton.removeTarget(nil, action: nil, for: .allEvents)
-            ttsButton.removeTarget(nil, action: nil, for: .allEvents)
-            leftButton.addTarget(self, action: #selector(didTapHistory), for: .touchUpInside)
-            rightButton.addTarget(self, action: #selector(didTapSettings), for: .touchUpInside)
-            ttsButton.addTarget(self, action: #selector(didTapTtsToggle), for: .touchUpInside)
-        case 0:
-            // History: left hidden, right -> back to chat
-            leftButton.isHidden = true
-            rightButton.isHidden = false
-            ttsButton.isHidden = true
-            rightButton.setImage(UIImage(systemName: "bubble.left"), for: .normal)
-            rightButton.removeTarget(nil, action: nil, for: .allEvents)
-            rightButton.addTarget(self, action: #selector(didTapChat), for: .touchUpInside)
-        case 2:
-            // Settings: left -> back to chat, right hidden
-            leftButton.isHidden = false
-            rightButton.isHidden = true
-            ttsButton.isHidden = true
-            leftButton.setImage(UIImage(systemName: "bubble.left"), for: .normal)
-            leftButton.removeTarget(nil, action: nil, for: .allEvents)
-            leftButton.addTarget(self, action: #selector(didTapChat), for: .touchUpInside)
-        default:
-            break
+        controllers.compactMap { $0 as? UINavigationController }.forEach { navigation in
+            applyNavigationAppearance(navigation)
+            if let label = navigation.topViewController?.navigationItem.titleView as? UILabel {
+                label.textColor = AppTheme.textPrimary
+                label.font = AppTheme.titleFont
+            }
         }
+        let tint = AppTheme.textPrimary
+        historyBackButton.tintColor = tint
+        settingsBackButton.tintColor = tint
     }
 
-    @objc private func didTapHistory() {
-        switchTo(index: 0)
+    private func applyNavigationAppearance(_ navigation: UINavigationController) {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .white
+        appearance.shadowColor = .clear
+        appearance.titleTextAttributes = [
+            .foregroundColor: AppTheme.textPrimary,
+            .font: AppTheme.titleFont
+        ]
+        let buttonAppearance = UIBarButtonItemAppearance(style: .plain)
+        buttonAppearance.normal.titleTextAttributes = [
+            .foregroundColor: AppTheme.textPrimary
+        ]
+        appearance.buttonAppearance = buttonAppearance
+        appearance.doneButtonAppearance = buttonAppearance
+
+        let navBar = navigation.navigationBar
+        navBar.standardAppearance = appearance
+        navBar.scrollEdgeAppearance = appearance
+        navBar.compactAppearance = appearance
+        navBar.isTranslucent = false
+        navBar.tintColor = AppTheme.textPrimary
+        navBar.prefersLargeTitles = false
     }
 
-    @objc private func didTapSettings() {
-        switchTo(index: 2)
+    private func makeTitleLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = AppTheme.titleFont
+        label.textColor = AppTheme.textPrimary
+        return label
     }
 
-    @objc private func didTapChat() {
-        viewModel.dispatch(.startNewConversation)
-        switchTo(index: 1)
-    }
-
-    @objc private func didTapTtsToggle() {
-        AppConfig.ttsMuted.toggle()
-        TextToSpeechManager.shared.handleMuteChanged()
-        ttsButton.setImage(ttsToggleImage(), for: .normal)
+    private func makeBarButton(systemName: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: systemName), for: .normal)
+        button.tintColor = AppTheme.textPrimary
+        button.addTarget(self, action: action, for: .touchUpInside)
+        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        return button
     }
 
     private func switchTo(index: Int) {
         guard index >= 0, index < controllers.count else { return }
         guard index != currentIndex else { return }
-        guard isPageReady else {
+        let width = scrollView.bounds.width
+        guard width > 0 else {
             DispatchQueue.main.async { [weak self] in
                 self?.switchTo(index: index)
             }
             return
         }
-        let direction: UIPageViewController.NavigationDirection = index > currentIndex ? .forward : .reverse
-        pageViewController.view.layoutIfNeeded()
-        CATransaction.begin()
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-        CATransaction.setAnimationDuration(pageTransitionDuration)
-        pageViewController.setViewControllers(
-            [controllers[index]],
-            direction: direction,
-            animated: true
-        ) { [weak self] completed in
-            guard let self, completed else { return }
-            self.currentIndex = index
-            self.updateNavTitle()
-            self.updateTopBarButtons()
+        let targetOffset = CGPoint(x: width * CGFloat(index), y: 0)
+        pageAnimator?.stopAnimation(true)
+        let animator = UIViewPropertyAnimator(duration: pageTransitionDuration, curve: .easeInOut) { [weak self] in
+            self?.scrollView.contentOffset = targetOffset
         }
-        CATransaction.commit()
+        animator.addCompletion { [weak self] _ in
+            self?.syncIndexFromScroll()
+        }
+        pageAnimator = animator
+        animator.startAnimation()
     }
 
-    private func ttsToggleImage() -> UIImage? {
-        AppConfig.ttsMuted
-            ? UIImage(systemName: "speaker.slash")
-            : UIImage(systemName: "speaker.wave.2")
+    @objc private func handleBackToChat() {
+        viewModel.dispatch(.startNewConversation)
+        switchTo(index: 1)
+    }
+
+    private func syncIndexFromScroll() {
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let rawIndex = Int(round(scrollView.contentOffset.x / width))
+        let clamped = max(0, min(rawIndex, controllers.count - 1))
+        guard clamped != currentIndex else { return }
+        currentIndex = clamped
     }
 }
 
 extension MainPagerViewController: ChatRouting {
     func showSettings(from presenter: UIViewController) {
-        let settingsView = SettingsView()
-            .environmentObject(swiftUIAdapter)
-            .environmentObject(ThemeManager.shared)
-        let controller = UIHostingController(rootView: settingsView)
-        controller.modalPresentationStyle = .formSheet
-        presenter.present(controller, animated: true)
+        switchTo(index: 2)
     }
 
     func showConversations(from presenter: UIViewController) {
-        let conversationView = HistoryConversationsListView()
-            .environmentObject(swiftUIAdapter)
-            .environmentObject(ThemeManager.shared)
-        let controller = UIHostingController(rootView: conversationView)
-        controller.modalPresentationStyle = .formSheet
-        presenter.present(controller, animated: true)
+        switchTo(index: 0)
     }
 }
 
-extension MainPagerViewController: UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-    func pageViewController(
-        _ pageViewController: UIPageViewController,
-        viewControllerBefore viewController: UIViewController
-    ) -> UIViewController? {
-        guard let index = controllers.firstIndex(of: viewController) else { return nil }
-        let prev = index - 1
-        guard prev >= 0 else { return nil }
-        return controllers[prev]
+extension MainPagerViewController: UIScrollViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        pageAnimator?.stopAnimation(true)
+        pageAnimator = nil
     }
 
-    func pageViewController(
-        _ pageViewController: UIPageViewController,
-        viewControllerAfter viewController: UIViewController
-    ) -> UIViewController? {
-        guard let index = controllers.firstIndex(of: viewController) else { return nil }
-        let next = index + 1
-        guard next < controllers.count else { return nil }
-        return controllers[next]
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        syncIndexFromScroll()
     }
 
-    func pageViewController(
-        _ pageViewController: UIPageViewController,
-        didFinishAnimating finished: Bool,
-        previousViewControllers: [UIViewController],
-        transitionCompleted completed: Bool
-    ) {
-        guard completed,
-              let visible = pageViewController.viewControllers?.first,
-              let index = controllers.firstIndex(of: visible) else { return }
-        currentIndex = index
-        updateNavTitle()
-        updateTopBarButtons()
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            syncIndexFromScroll()
+        }
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        syncIndexFromScroll()
     }
 }

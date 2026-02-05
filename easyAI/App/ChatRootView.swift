@@ -15,12 +15,11 @@ struct ChatRootView: UIViewControllerRepresentable {
     let viewModel: ChatViewModel
     @EnvironmentObject var adapter: ChatViewModelSwiftUIAdapter
 
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let controller = MainPagerViewController(viewModel: viewModel, swiftUIAdapter: adapter)
-        return UINavigationController(rootViewController: controller)
+    func makeUIViewController(context: Context) -> UIViewController {
+        MainPagerViewController(viewModel: viewModel, swiftUIAdapter: adapter)
     }
 
-    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
         // 无需更新
     }
 }

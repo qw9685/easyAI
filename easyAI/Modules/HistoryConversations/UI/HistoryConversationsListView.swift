@@ -15,6 +15,7 @@ struct HistoryConversationsListView: View {
     @EnvironmentObject var viewModel: ChatViewModelSwiftUIAdapter
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
+    let isEmbeddedInPager: Bool
     @State private var renameConversation: ConversationRecord?
     @State private var renameTitle: String = ""
     @State private var showRenameAlert: Bool = false
@@ -22,113 +23,126 @@ struct HistoryConversationsListView: View {
     @State private var searchResults: [String: ConversationSearchMatch] = [:]
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearching: Bool = false
+
+    init(isEmbeddedInPager: Bool = false) {
+        self.isEmbeddedInPager = isEmbeddedInPager
+    }
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                searchBar
-                List {
-                    ForEach(filteredConversations, id: \.id) { conversation in
+        Group {
+            if isEmbeddedInPager {
+                content
+            } else {
+                NavigationView {
+                    content
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("关闭") {
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .principal) {
+                        Text("会话")
+                            .font(AppThemeSwift.titleFont)
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
-                            guard !viewModel.isSwitchingConversation else { return }
-                            Task {
-                                await viewModel.selectConversationAfterLoaded(id: conversation.id)
-                                await MainActor.run {
-                                    clearSearch()
-                                }
-                                viewModel.emitEvent(.switchToChat)
-                            }
+                            viewModel.dispatch(.startNewConversation)
+                            dismiss()
                         } label: {
-                            ConversationRow(
-                                conversation: conversation,
-                                searchMatch: searchResults[conversation.id],
-                                isSearching: isSearching
-                            )
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 12)
-                            .background(AppThemeSwift.surface)
-                            .cornerRadius(14)
+                            Image(systemName: "plus")
                         }
-                        .buttonStyle(.plain)
-                        .disabled(viewModel.isSwitchingConversation)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                renameConversation = conversation
-                                renameTitle = conversation.title
-                                showRenameAlert = true
-                            } label: {
-                                Label("重命名", systemImage: "pencil")
-                            }
-                            Button {
-                                viewModel.dispatch(.setPinned(id: conversation.id, isPinned: !conversation.isPinned))
-                            } label: {
-                                Label(conversation.isPinned ? "取消置顶" : "置顶",
-                                      systemImage: conversation.isPinned ? "pin.slash" : "pin")
-                            }
-                            .tint(.orange)
-                            Button(role: .destructive) {
-                                viewModel.dispatch(.deleteConversation(conversation.id))
-                            } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                        }
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                        .listRowBackground(Color.clear)
                     }
                 }
-                .listStyle(.plain)
-                .listRowSeparator(.hidden)
-            }
-            .overlay(emptyStateView)
-            .scrollContentBackground(.hidden)
-            .background(AppThemeSwift.backgroundGradient)
-            .listRowSeparatorTint(AppThemeSwift.border)
-            .tint(AppThemeSwift.accent)
-            .navigationBarHidden(true)
-            .toolbar(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("关闭") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    Text("会话")
-                        .font(AppThemeSwift.titleFont)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        viewModel.dispatch(.startNewConversation)
-                        dismiss()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-            .onAppear {
-                        viewModel.dispatch(.loadConversations)
-            }
-            .onChange(of: searchText) { newValue in
-                scheduleSearch(newValue)
-            }
-            .alert("重命名", isPresented: $showRenameAlert) {
-                TextField("标题", text: $renameTitle)
-                Button("取消", role: .cancel) {
-                    renameConversation = nil
-                    showRenameAlert = false
-                }
-                Button("保存") {
-                    if let conversation = renameConversation {
-                        viewModel.dispatch(.renameConversation(id: conversation.id, title: renameTitle))
-                    }
-                    renameConversation = nil
-                    showRenameAlert = false
-                }
-            } message: {
-                Text("输入新的会话名称")
             }
         }
         .id(themeManager.selection)
+    }
+
+    private var content: some View {
+        VStack(spacing: 0) {
+            searchBar
+            List {
+                ForEach(filteredConversations, id: \.id) { conversation in
+                    Button {
+                        guard !viewModel.isSwitchingConversation else { return }
+                        Task {
+                            await viewModel.selectConversationAfterLoaded(id: conversation.id)
+                            await MainActor.run {
+                                clearSearch()
+                            }
+                            viewModel.emitEvent(.switchToChat)
+                        }
+                    } label: {
+                        ConversationRow(
+                            conversation: conversation,
+                            searchMatch: searchResults[conversation.id],
+                            isSearching: isSearching
+                        )
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
+                        .background(AppThemeSwift.surface)
+                        .cornerRadius(14)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isSwitchingConversation)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            renameConversation = conversation
+                            renameTitle = conversation.title
+                            showRenameAlert = true
+                        } label: {
+                            Label("重命名", systemImage: "pencil")
+                        }
+                        Button {
+                            viewModel.dispatch(.setPinned(id: conversation.id, isPinned: !conversation.isPinned))
+                        } label: {
+                            Label(conversation.isPinned ? "取消置顶" : "置顶",
+                                  systemImage: conversation.isPinned ? "pin.slash" : "pin")
+                        }
+                        .tint(.orange)
+                        Button(role: .destructive) {
+                            viewModel.dispatch(.deleteConversation(conversation.id))
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .listRowSeparator(.hidden)
+        }
+        .overlay(emptyStateView)
+        .scrollContentBackground(.hidden)
+        .background(AppThemeSwift.backgroundGradient)
+        .listRowSeparatorTint(AppThemeSwift.border)
+        .tint(AppThemeSwift.accent)
+        .onAppear {
+            viewModel.dispatch(.loadConversations)
+        }
+        .onChange(of: searchText) { newValue in
+            scheduleSearch(newValue)
+        }
+        .alert("重命名", isPresented: $showRenameAlert) {
+            TextField("标题", text: $renameTitle)
+            Button("取消", role: .cancel) {
+                renameConversation = nil
+                showRenameAlert = false
+            }
+            Button("保存") {
+                if let conversation = renameConversation {
+                    viewModel.dispatch(.renameConversation(id: conversation.id, title: renameTitle))
+                }
+                renameConversation = nil
+                showRenameAlert = false
+            }
+        } message: {
+            Text("输入新的会话名称")
+        }
     }
 
     private var filteredConversations: [ConversationRecord] {

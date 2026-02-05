@@ -29,7 +29,32 @@ final class ChatViewController: UIViewController {
     )
     private let disposeBag = DisposeBag()
     private let backgroundGradient = CAGradientLayer()
-    private var themeObserver: NSObjectProtocol?
+
+    private lazy var historyButton = makeBarButton(
+        systemName: "clock",
+        action: #selector(showConversations)
+    )
+
+    private lazy var settingsButton = makeBarButton(
+        systemName: "gearshape",
+        action: #selector(showSettings)
+    )
+
+    private lazy var ttsButton = makeBarButton(
+        systemName: ttsToggleImageName(),
+        action: #selector(didTapTtsToggle)
+    )
+
+    private lazy var rightButtonsStack: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [ttsButton, settingsButton])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 12
+        return stack
+    }()
+
+    private lazy var leftBarItem = UIBarButtonItem(customView: historyButton)
+    private lazy var rightBarItem = UIBarButtonItem(customView: rightButtonsStack)
     
     init(viewModel: ChatViewModel, router: ChatRouting? = nil) {
         self.viewModel = viewModel
@@ -62,18 +87,7 @@ final class ChatViewController: UIViewController {
         setupBackground()
         setupNavigationBarAppearance()
         title = "EasyAI"
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "list.bullet"),
-            style: .plain,
-            target: self,
-            action: #selector(showConversations)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "gearshape"),
-            style: .plain,
-            target: self,
-            action: #selector(showSettings)
-        )
+        configureNavigationItems()
         
         addChild(tableViewController)
         view.addSubview(tableViewController.view)
@@ -93,6 +107,11 @@ final class ChatViewController: UIViewController {
             make.bottom.equalTo(view.keyboardLayoutGuide.snp.top)
         }
     }
+
+    private func configureNavigationItems() {
+        navigationItem.leftBarButtonItem = leftBarItem
+        navigationItem.rightBarButtonItem = rightBarItem
+    }
     
     private func setupBackground() {
         view.backgroundColor = AppTheme.canvas
@@ -111,29 +130,35 @@ final class ChatViewController: UIViewController {
     private func setupNavigationBarAppearance() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = AppTheme.canvas
+        appearance.backgroundColor = .white
         appearance.shadowColor = .clear
         appearance.titleTextAttributes = [
             .foregroundColor: AppTheme.textPrimary,
             .font: AppTheme.titleFont
         ]
+        let buttonAppearance = UIBarButtonItemAppearance(style: .plain)
+        buttonAppearance.normal.titleTextAttributes = [
+            .foregroundColor: AppTheme.textPrimary
+        ]
+        appearance.buttonAppearance = buttonAppearance
+        appearance.doneButtonAppearance = buttonAppearance
 
         let navBar = navigationController?.navigationBar
         navBar?.standardAppearance = appearance
         navBar?.scrollEdgeAppearance = appearance
         navBar?.compactAppearance = appearance
         navBar?.isTranslucent = false
-        navBar?.tintColor = AppTheme.textSecondary
+        navBar?.tintColor = AppTheme.textPrimary
+        navBar?.prefersLargeTitles = false
     }
 
     private func observeThemeChanges() {
-        themeObserver = NotificationCenter.default.addObserver(
-            forName: .themeDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyTheme()
-        }
+        ThemeManager.shared.themeRelay
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] _ in
+                self?.applyTheme()
+            })
+            .disposed(by: disposeBag)
     }
 
     private func applyTheme() {
@@ -141,14 +166,13 @@ final class ChatViewController: UIViewController {
         setupNavigationBarAppearance()
         inputBarController.applyTheme()
         tableViewController.applyTheme()
+        let tint = AppTheme.textPrimary
+        historyButton.tintColor = tint
+        settingsButton.tintColor = tint
+        ttsButton.tintColor = tint
+        ttsButton.setImage(UIImage(systemName: ttsToggleImageName()), for: .normal)
     }
 
-    deinit {
-        if let themeObserver {
-            NotificationCenter.default.removeObserver(themeObserver)
-        }
-    }
-    
     private func bindViewModel() {
         output = viewModel.transform(
             ChatViewModel.Input(actions: actionRelay.asObservable())
@@ -189,5 +213,24 @@ final class ChatViewController: UIViewController {
     
     @objc private func showConversations() {
         router?.showConversations(from: self)
+    }
+
+    @objc private func didTapTtsToggle() {
+        AppConfig.ttsMuted.toggle()
+        TextToSpeechManager.shared.handleMuteChanged()
+        ttsButton.setImage(UIImage(systemName: ttsToggleImageName()), for: .normal)
+    }
+
+    private func ttsToggleImageName() -> String {
+        AppConfig.ttsMuted ? "speaker.slash" : "speaker.wave.2"
+    }
+
+    private func makeBarButton(systemName: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: systemName), for: .normal)
+        button.tintColor = AppTheme.textPrimary
+        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
     }
 }

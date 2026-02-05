@@ -64,10 +64,10 @@ final class MarkdownTableBlockView: UIView, MarkdownBlockView {
             contentWidthConstraint = make.width.equalTo(0).priority(.required).constraint
         }
 
-        scrollView.frameLayoutGuide.heightAnchor.constraint(equalTo: contentStack.heightAnchor).isActive = true
-        let widthConstraint = scrollView.frameLayoutGuide.widthAnchor.constraint(equalTo: contentStack.widthAnchor)
-        widthConstraint.priority = .defaultLow
-        widthConstraint.isActive = true
+        scrollView.frameLayoutGuide.snp.makeConstraints { make in
+            make.height.equalTo(contentStack)
+            make.width.equalTo(contentStack).priority(.low)
+        }
     }
 
     func update(block: MarkdownBlock, style: MarkdownStyle) {

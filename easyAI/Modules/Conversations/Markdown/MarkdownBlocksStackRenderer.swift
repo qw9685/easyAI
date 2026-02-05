@@ -9,6 +9,7 @@
 //
 
 import UIKit
+import SnapKit
 
 final class MarkdownBlocksStackRenderer {
     private let viewFactory: MarkdownBlockViewMaking
@@ -60,13 +61,8 @@ final class MarkdownBlocksStackRenderer {
     }
 
     private func ensureFullWidth(view: UIView, in stackView: UIStackView) {
-        view.translatesAutoresizingMaskIntoConstraints = false
-        let existing = (stackView.constraints + view.constraints).filter { constraint in
-            (constraint.firstItem as? UIView) == view
-                && constraint.firstAttribute == .width
+        view.snp.remakeConstraints { make in
+            make.width.equalTo(stackView)
         }
-        existing.forEach { $0.isActive = false }
-        let constraint = view.widthAnchor.constraint(equalTo: stackView.widthAnchor)
-        constraint.isActive = true
     }
 }

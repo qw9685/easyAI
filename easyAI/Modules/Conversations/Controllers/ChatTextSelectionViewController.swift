@@ -9,6 +9,7 @@
 //
 
 import UIKit
+import SnapKit
 
 final class ChatTextSelectionViewController: UIViewController {
     private let textView = UITextView()
@@ -38,13 +39,9 @@ final class ChatTextSelectionViewController: UIViewController {
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 12, bottom: 16, right: 12)
 
         view.addSubview(textView)
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            textView.topAnchor.constraint(equalTo: view.topAnchor),
-            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        textView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .done,

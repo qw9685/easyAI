@@ -9,6 +9,8 @@ import Foundation
 import UIKit
 import SwiftUI
 import Combine
+import RxSwift
+import RxCocoa
 
 final class ThemeManager: ObservableObject {
     static let shared = ThemeManager()
@@ -16,9 +18,11 @@ final class ThemeManager: ObservableObject {
     @Published var selection: ThemeOption {
         didSet {
             ConfigManager.shared.selectedThemeId = selection.id
-            NotificationCenter.default.post(name: .themeDidChange, object: nil)
+            themeRelay.accept(selection)
         }
     }
+
+    let themeRelay: BehaviorRelay<ThemeOption>
 
     var palette: ThemePalette {
         selection.palette
@@ -29,17 +33,16 @@ final class ThemeManager: ObservableObject {
     }
 
     private init() {
+        let initialSelection: ThemeOption
         if let stored = ConfigManager.shared.selectedThemeId,
            let theme = ThemeOption(id: stored) {
-            self.selection = theme
+            initialSelection = theme
         } else {
-            self.selection = .refinedBlue
+            initialSelection = .refinedBlue
         }
+        self.selection = initialSelection
+        self.themeRelay = BehaviorRelay(value: initialSelection)
     }
-}
-
-extension Notification.Name {
-    static let themeDidChange = Notification.Name("ThemeManager.themeDidChange")
 }
 
 struct ThemePalette {
