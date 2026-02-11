@@ -86,7 +86,6 @@ final class ChatViewModel {
     private let conversationUseCase: ConversationListUseCase
     private let sessionCoordinator: ChatSessionCoordinating
     private let modelSelection: ModelSelectionCoordinator
-    private let turnIdFactory: ChatTurnIdFactory
     private let logger: ChatLogger
     private let sendMessageUseCase: ChatSendMessageUseCase
     private var activeSendTask: Task<Void, Never>?
@@ -218,12 +217,10 @@ final class ChatViewModel {
         self.conversationUseCase = ConversationListUseCase(coordinator: conversationCoordinator)
         self.sessionCoordinator = ChatSessionCoordinator()
         self.modelSelection = ModelSelectionCoordinator(modelRepository: modelRepository)
-        self.turnIdFactory = ChatTurnIdFactory()
         self.logger = ChatLogger(isphaseEnabled: { AppConfig.enablephaseLogs })
         self.sendMessageUseCase = ChatSendMessageUseCase(
             modelSelection: self.modelSelection,
             turnRunner: self.turnRunner,
-            turnIdFactory: self.turnIdFactory,
             logger: self.logger
         )
         bootstrapConversation()
@@ -544,6 +541,7 @@ final class ChatViewModel {
                     self.currentTurnId = nil
                 }
             },
+            getConversationUUID: { self.conversationId },
             getCurrentConversationId: { self.currentConversationId },
             getSelectedModel: { self.selectedModel },
             getAvailableModels: { self.availableModels },
@@ -697,16 +695,9 @@ final class ChatViewModel {
         guard let conversationId else { return }
         do {
             let now = Date()
-            if let newTitle = try await persistence.persistNewMessage(message, conversationId: conversationId) {
-                await MainActor.run {
-                    if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
-                        conversations[index].title = newTitle
-                        conversations[index].updatedAt = now
-                    }
-                }
-            }
+            let newTitle = try await persistence.persistNewMessage(message, conversationId: conversationId)
             await MainActor.run {
-                applyConversationTouch(conversationId: conversationId, touchedAt: now)
+                applyConversationTouch(conversationId: conversationId, touchedAt: now, title: newTitle)
             }
         } catch {
             RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to persist message: \(error)")
@@ -757,23 +748,23 @@ final class ChatViewModel {
     // MARK: - Conversation Creation
     @MainActor
     private func ensureConversation() -> Bool {
-        if isResettingPersistence {
-            errorMessage = "正在清空数据，请稍后重试。"
+        switch ConversationFlowKit.decideEnsureConversation(
+            isResettingPersistence: isResettingPersistence,
+            currentConversationId: currentConversationId
+        ) {
+        case .blocked(let error):
+            errorMessage = error
             return false
+        case .ready:
+            return true
+        case .createNew:
+            break
         }
 
-        if currentConversationId != nil {
-            return true
-        }
         do {
             let conversation = try conversationUseCase.createConversation()
-            clearPendingMessageContentUpdates()
-            currentConversationId = conversation.id
-            conversationId = UUID()
-            turnIdFactory.conversationId = conversationId
-            currentTurnId = nil
-            messages = []
-            stopNotices.removeAll()
+            let transition = ConversationFlowKit.makeTransitionForCreatedConversation(conversationId: conversation.id)
+            applySessionTransition(transition)
             conversations.insert(conversation, at: 0)
             return true
         } catch {
@@ -785,14 +776,21 @@ final class ChatViewModel {
 
     /// 应用会话快照到 UI 状态
     private func applySessionSnapshot(_ snapshot: ChatSessionSnapshot) {
+        applySessionTransition(ConversationFlowKit.makeTransition(from: snapshot))
+    }
+
+    private func applySessionTransition(_ transition: ConversationFlowKit.SessionTransition) {
         batchSnapshotUpdate {
-            clearPendingMessageContentUpdates()
-            currentConversationId = snapshot.currentConversationId
-            messages = snapshot.messages
-            conversationId = snapshot.conversationId
-            turnIdFactory.conversationId = snapshot.conversationId
-            currentTurnId = snapshot.currentTurnId
-            stopNotices.removeAll()
+            if transition.shouldClearPendingMessageUpdates {
+                clearPendingMessageContentUpdates()
+            }
+            currentConversationId = transition.currentConversationId
+            messages = transition.messages
+            conversationId = transition.conversationId
+            currentTurnId = transition.currentTurnId
+            if transition.shouldClearStopNotices {
+                stopNotices.removeAll()
+            }
         }
     }
 
@@ -853,17 +851,20 @@ final class ChatViewModel {
     }
 
     @MainActor
-    private func applyConversationTouch(conversationId: String, touchedAt: Date) {
-        switch conversationUseCase.applyConversationTouch(
+    private func applyConversationTouch(conversationId: String, touchedAt: Date, title: String? = nil) {
+        let result = conversationUseCase.applyConversationTouch(
             conversationId: conversationId,
             touchedAt: touchedAt,
+            title: title,
             conversations: conversations
-        ) {
-        case .updated(let updated):
+        )
+
+        switch ConversationFlowKit.decideConversationTouch(result) {
+        case .update(let updated):
             conversations = updated
-        case .needsReload:
+        case .reload(let debounceMs):
             // 极少数情况下（内存列表未同步），fallback 一次全量刷新。
-            scheduleLoadConversations(debounceMs: 150)
+            scheduleLoadConversations(debounceMs: debounceMs)
         }
     }
     

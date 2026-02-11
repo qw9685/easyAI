@@ -55,8 +55,6 @@ struct AIModel: Identifiable, Codable, Hashable {
         self.contextLength = contextLength
         self.pricing = pricing
     }
-    
-    // 数据获取由 ModelRepository 负责，避免模型类型直接依赖网络层。
 }
 
 extension AIModel {

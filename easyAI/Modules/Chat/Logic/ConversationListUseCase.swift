@@ -10,11 +10,6 @@
 
 import Foundation
 
-enum ConversationTouchResult {
-    case updated([ConversationRecord])
-    case needsReload
-}
-
 final class ConversationListUseCase {
     private let coordinator: ConversationCoordinator
     private var loadTask: Task<Void, Never>?
@@ -72,12 +67,11 @@ final class ConversationListUseCase {
         title: String,
         conversations: [ConversationRecord]
     ) -> [ConversationRecord] {
-        var updated = conversations
-        if let index = updated.firstIndex(where: { $0.id == id }) {
-            updated[index].title = title
-            updated[index].updatedAt = Date()
-        }
-        return sortConversations(updated)
+        ConversationMutationKit.applyRename(
+            id: id,
+            title: title,
+            conversations: conversations
+        )
     }
 
     func setPinned(id: String, isPinned: Bool) throws {
@@ -89,12 +83,11 @@ final class ConversationListUseCase {
         isPinned: Bool,
         conversations: [ConversationRecord]
     ) -> [ConversationRecord] {
-        var updated = conversations
-        if let index = updated.firstIndex(where: { $0.id == id }) {
-            updated[index].isPinned = isPinned
-            updated[index].updatedAt = Date()
-        }
-        return sortConversations(updated)
+        ConversationMutationKit.applyPinned(
+            id: id,
+            isPinned: isPinned,
+            conversations: conversations
+        )
     }
 
     func deleteConversation(id: String) throws {
@@ -105,7 +98,10 @@ final class ConversationListUseCase {
         id: String,
         conversations: [ConversationRecord]
     ) -> [ConversationRecord] {
-        conversations.filter { $0.id != id }
+        ConversationMutationKit.removeConversation(
+            id: id,
+            conversations: conversations
+        )
     }
 
     func createConversation(title: String = "新对话") throws -> ConversationRecord {
@@ -119,20 +115,17 @@ final class ConversationListUseCase {
     func applyConversationTouch(
         conversationId: String,
         touchedAt: Date,
+        title: String? = nil,
         conversations: [ConversationRecord]
     ) -> ConversationTouchResult {
-        guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else {
+        guard let updated = ConversationMutationKit.applyTouch(
+            conversationId: conversationId,
+            touchedAt: touchedAt,
+            title: title,
+            conversations: conversations
+        ) else {
             return .needsReload
         }
-        var updated = conversations
-        updated[index].updatedAt = touchedAt
-        return .updated(sortConversations(updated))
-    }
-
-    private func sortConversations(_ conversations: [ConversationRecord]) -> [ConversationRecord] {
-        conversations.sorted {
-            if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
-            return $0.updatedAt > $1.updatedAt
-        }
+        return .updated(updated)
     }
 }

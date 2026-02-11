@@ -15,6 +15,7 @@ struct ChatSendMessageEnvironment {
     var ensureConversation: @MainActor () -> Bool
     var setCurrentTurnId: @MainActor (UUID?) -> Void
     var clearCurrentTurnIdIfMatches: @MainActor (UUID) -> Void
+    var getConversationUUID: @MainActor () -> UUID
     var getCurrentConversationId: @MainActor () -> String?
     var getSelectedModel: @MainActor () -> AIModel?
     var getAvailableModels: @MainActor () -> [AIModel]
@@ -46,23 +47,18 @@ private struct SmartRoutingResult {
 final class ChatSendMessageUseCase {
     private let modelSelection: ModelSelectionCoordinator
     private let turnRunner: ChatTurnRunner
-    private let turnIdFactory: ChatTurnIdFactory
     private let logger: ChatLogger
-    private let fallbackPolicy = ModelFallbackPolicy()
-    private let routingEngine = ModelRoutingEngine()
     private let providerStatsRepository: ProviderStatsRepository
     private var activeTypewriter: ChatTypewriter?
 
     init(
         modelSelection: ModelSelectionCoordinator,
         turnRunner: ChatTurnRunner,
-        turnIdFactory: ChatTurnIdFactory,
         logger: ChatLogger,
         providerStatsRepository: ProviderStatsRepository? = nil
     ) {
         self.modelSelection = modelSelection
         self.turnRunner = turnRunner
-        self.turnIdFactory = turnIdFactory
         self.logger = logger
         self.providerStatsRepository = providerStatsRepository ?? .shared
     }
@@ -98,8 +94,15 @@ final class ChatSendMessageUseCase {
         let turnId = UUID()
         env.setCurrentTurnId(turnId)
 
-        let baseId = turnIdFactory.makeBaseId(turnId: turnId)
-        let userMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "user_msg", part: "main")
+        let baseId = ConversationIdentityKit.makeBaseId(
+            conversationId: env.getConversationUUID(),
+            turnId: turnId
+        )
+        let userMessageItemId = ConversationIdentityKit.makeItemId(
+            baseId: baseId,
+            kind: "user_msg",
+            part: "main"
+        )
         logger.phase("turn start | baseId=\(baseId) | itemId=\(userMessageItemId) | stream=\(AppConfig.enableStream)")
 
         let userMessage = Message(
@@ -118,7 +121,7 @@ final class ChatSendMessageUseCase {
         case .ready(let selected):
             model = selected
         case .error(let message, let reason):
-            let errorItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "error", part: reason)
+            let errorItemId = ConversationIdentityKit.makeItemId(baseId: baseId, kind: "error", part: reason)
             let errorMsg = Message(content: message, role: .assistant, turnId: turnId, baseId: baseId, itemId: errorItemId)
             env.appendMessage(errorMsg)
             logger.phase("turn end | baseId=\(baseId) | reason=\(reason)")
@@ -183,13 +186,13 @@ final class ChatSendMessageUseCase {
                     return
                 }
 
-                let classified = OpenRouterErrorClassifier.classify(error)
+                let classified = ChatFailureKit.classify(error)
                 let canFallback = AppConfig.fallbackEnabled
                     && attemptIndex < maxRetries
-                    && shouldRetryWithFallback(for: classified.category)
+                    && ModelDecisionKit.shouldRetryFallback(for: classified.category)
 
                 if canFallback,
-                   let nextModel = fallbackPolicy.nextModel(
+                   let nextModel = ModelDecisionKit.nextFallbackModel(
                     currentModel: model,
                     availableModels: env.getAvailableModels(),
                     attemptIndex: attemptIndex,
@@ -261,13 +264,13 @@ final class ChatSendMessageUseCase {
         if AppConfig.enableStream {
             // 注意：messagesToSend 不能包含“空的 streaming assistant 占位消息”，否则会污染上下文。
             let messagesToSend = env.buildMessagesForRequest(userMessage)
-            let nativeFallbackModels = makeNativeFallbackModels(
+            let nativeFallbackModels = ChatExecutionPolicyKit.makeNativeFallbackModels(
                 currentModel: model,
                 availableModels: env.getAvailableModels(),
                 requiresMultimodal: userMessage.hasMedia
             )
 
-            let assistantMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "assistant_stream", part: "main")
+            let assistantMessageItemId = ConversationIdentityKit.makeItemId(baseId: baseId, kind: "assistant_stream", part: "main")
             let assistantMessage = Message(
                 content: "",
                 role: .assistant,
@@ -275,7 +278,7 @@ final class ChatSendMessageUseCase {
                 turnId: turnId,
                 baseId: baseId,
                 itemId: assistantMessageItemId,
-                runtimeStatusText: mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+                runtimeStatusText: ChatSendStatusKit.mergedStatus(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
                 routingMetadata: routingMetadata
             )
             env.appendMessage(assistantMessage)
@@ -300,7 +303,7 @@ final class ChatSendMessageUseCase {
                         }
                     }
                 )
-                let streamMetrics = makeMetrics(
+                let streamMetrics = ChatExecutionPolicyKit.makeMetrics(
                     requestMessages: messagesToSend,
                     responseText: result.fullContent,
                     model: model,
@@ -314,7 +317,7 @@ final class ChatSendMessageUseCase {
                         updated = env.finalizeStreamingMessage(
                             messageId,
                             streamMetrics,
-                            mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+                            ChatSendStatusKit.mergedStatus(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
                             routingMetadata
                         )
                     }
@@ -336,10 +339,14 @@ final class ChatSendMessageUseCase {
 
             var streamResult: ChatStreamResult?
             var streamMetrics: MessageMetrics?
-            let typewriterConfig = makeTypewriterConfig()
-            let combinedStatusText = mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText)
+            let typewriterConfig = ChatExecutionPolicyKit.makeTypewriterConfig()
+            let combinedStatusText = ChatSendStatusKit.mergedStatus(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText)
             let typewriter = ChatTypewriter(
-                config: typewriterConfig,
+                config: ChatTypewriter.Config(
+                    tickInterval: typewriterConfig.tickInterval,
+                    minCharsPerTick: typewriterConfig.minCharsPerTick,
+                    maxCharsPerTick: typewriterConfig.maxCharsPerTick
+                ),
                 updateDisplay: { text in
                     env.updateMessageContent(messageId, text)
                 },
@@ -388,7 +395,7 @@ final class ChatSendMessageUseCase {
                 }
             )
             streamResult = result
-            streamMetrics = makeMetrics(
+            streamMetrics = ChatExecutionPolicyKit.makeMetrics(
                 requestMessages: messagesToSend,
                 responseText: result.fullContent,
                 model: model,
@@ -401,7 +408,7 @@ final class ChatSendMessageUseCase {
         }
 
         let messagesToSend = env.buildMessagesForRequest(userMessage)
-        let nativeFallbackModels = makeNativeFallbackModels(
+        let nativeFallbackModels = ChatExecutionPolicyKit.makeNativeFallbackModels(
             currentModel: model,
             availableModels: env.getAvailableModels(),
             requiresMultimodal: userMessage.hasMedia
@@ -417,7 +424,7 @@ final class ChatSendMessageUseCase {
         )
         let response = serviceResponse.content
         let nonStreamDurationMs = Int(Date().timeIntervalSince(nonStreamStartTime) * 1000)
-        let nonStreamMetrics = makeMetrics(
+        let nonStreamMetrics = ChatExecutionPolicyKit.makeMetrics(
             requestMessages: messagesToSend,
             responseText: response,
             model: model,
@@ -425,7 +432,7 @@ final class ChatSendMessageUseCase {
             usage: serviceResponse.usage
         )
 
-        let assistantMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "assistant_final", part: "main")
+        let assistantMessageItemId = ConversationIdentityKit.makeItemId(baseId: baseId, kind: "assistant_final", part: "main")
         if !useTypewriter {
             let assistantMessage = Message(
                 content: response,
@@ -434,7 +441,7 @@ final class ChatSendMessageUseCase {
                 baseId: baseId,
                 itemId: assistantMessageItemId,
                 metrics: nonStreamMetrics,
-                runtimeStatusText: mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+                runtimeStatusText: ChatSendStatusKit.mergedStatus(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
                 routingMetadata: routingMetadata
             )
 
@@ -461,7 +468,7 @@ final class ChatSendMessageUseCase {
             turnId: turnId,
             baseId: baseId,
             itemId: assistantMessageItemId,
-            runtimeStatusText: mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+            runtimeStatusText: ChatSendStatusKit.mergedStatus(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
             routingMetadata: routingMetadata
         )
 
@@ -469,10 +476,14 @@ final class ChatSendMessageUseCase {
         streamingMessageId = assistantMessage.id
 
         let messageId = assistantMessage.id
-        let typewriterConfig = makeTypewriterConfig()
-        let combinedStatusText = mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText)
+        let typewriterConfig = ChatExecutionPolicyKit.makeTypewriterConfig()
+        let combinedStatusText = ChatSendStatusKit.mergedStatus(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText)
         let typewriter = ChatTypewriter(
-            config: typewriterConfig,
+            config: ChatTypewriter.Config(
+                tickInterval: typewriterConfig.tickInterval,
+                minCharsPerTick: typewriterConfig.minCharsPerTick,
+                maxCharsPerTick: typewriterConfig.maxCharsPerTick
+            ),
             updateDisplay: { text in
                 env.updateMessageContent(messageId, text)
             },
@@ -522,15 +533,13 @@ final class ChatSendMessageUseCase {
         env.batchUpdate {
             env.setIsLoading(false)
             if let messageId = streamingMessageId {
-                let mergedStatusText: String?
-                if let fallbackStatusText, !fallbackStatusText.isEmpty {
-                    mergedStatusText = "\(fallbackStatusText) · \(classified.statusMessage)"
-                } else {
-                    mergedStatusText = classified.statusMessage
-                }
+                let mergedStatusText = ChatSendStatusKit.errorMergedStatus(
+                    fallbackStatusText: fallbackStatusText,
+                    classifiedStatus: classified.statusMessage
+                )
                 updated = env.finalizeStreamingMessage(messageId, nil, mergedStatusText, routingMetadata)
             }
-            let errorItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "error", part: classified.category.rawValue)
+            let errorItemId = ConversationIdentityKit.makeItemId(baseId: baseId, kind: "error", part: classified.category.rawValue)
             let errorMsg = Message(
                 content: "抱歉，发生了错误：\(classified.userMessage)",
                 role: .assistant,
@@ -551,35 +560,7 @@ final class ChatSendMessageUseCase {
 
     private func makeFallbackStatusText(_ attempts: [FallbackAttempt]) -> String? {
         guard let last = attempts.last else { return nil }
-        return "已切换到 \(last.modelName)（重试 \(last.attempt) 次）"
-    }
-
-    private func mergedStatusText(fallbackStatusText: String?, routingStatusText: String?) -> String? {
-        let parts = [routingStatusText, fallbackStatusText].compactMap { text -> String? in
-            guard let text, !text.isEmpty else { return nil }
-            return text
-        }
-        guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: " · ")
-    }
-
-
-
-    private func shouldRetryWithFallback(for category: ChatErrorCategory) -> Bool {
-        switch category {
-        case .rateLimited:
-            return AppConfig.fallbackRetryOnRateLimited
-        case .timeout:
-            return AppConfig.fallbackRetryOnTimeout
-        case .serverUnavailable:
-            return AppConfig.fallbackRetryOnServerUnavailable
-        case .network:
-            return AppConfig.fallbackRetryOnNetwork
-        case .insufficientCredits, .invalidModel, .modelNotFound, .modelNotSupportMultimodal, .contextTooLong, .missingAPIKey, .cancelled:
-            return false
-        case .unknown:
-            return false
-        }
+        return ChatSendStatusKit.fallbackStatusText(modelName: last.modelName, attempt: last.attempt)
     }
 
     private func maybeApplySmartRouting(
@@ -591,16 +572,12 @@ final class ChatSendMessageUseCase {
     ) -> SmartRoutingResult? {
         guard AppConfig.routingMode == .smart else { return nil }
 
-        let intent = TaskIntent.infer(
-            content: content,
-            hasMedia: userMessage.hasMedia,
-            requestMessages: requestMessages
-        )
-
-        guard let decision = routingEngine.recommendModel(
+        guard let decision = ModelDecisionKit.recommendModel(
             currentModel: currentModel,
             availableModels: env.getAvailableModels(),
-            intent: intent,
+            content: content,
+            hasMedia: userMessage.hasMedia,
+            requestMessages: requestMessages,
             budgetMode: AppConfig.budgetMode
         ) else {
             return nil
@@ -621,117 +598,6 @@ final class ChatSendMessageUseCase {
         env.setErrorMessage("已按智能路由切换到 \(decision.model.name)")
         logger.phase("smart routing | model=\(decision.model.apiModel) | reason=\(decision.reason)")
         return SmartRoutingResult(metadata: metadata, statusText: statusText)
-    }
-
-    /// 尾段速度随“打字机速度”提升，避免最后 200 字固定 1 字/ tick 的视觉拖慢。
-    private func makeTypewriterConfig() -> ChatTypewriter.Config {
-        let speed = AppConfig.clampTypewriterSpeed(AppConfig.typewriterSpeed)
-        return ChatTypewriter.Config(
-            tickInterval: max(0.02, 0.08 / speed),
-            minCharsPerTick: AppConfig.typewriterMinCharsPerTick(for: speed),
-            maxCharsPerTick: AppConfig.typewriterMaxCharsPerTick(for: speed)
-        )
-    }
-
-    private func makeMetrics(
-        requestMessages: [Message],
-        responseText: String,
-        model: AIModel,
-        latencyMs: Int,
-        usage: ChatTokenUsage? = nil
-    ) -> MessageMetrics {
-        let estimatedPromptTokens = estimatePromptTokens(from: requestMessages)
-        let estimatedCompletionTokens = estimateTextTokens(responseText)
-        let promptTokens = usage?.promptTokens ?? estimatedPromptTokens
-        let completionTokens = usage?.completionTokens ?? estimatedCompletionTokens
-        let totalTokens = usage?.totalTokens ?? (promptTokens + completionTokens)
-        let estimatedCostUSD = estimateCostUSD(
-            model: model,
-            promptTokens: promptTokens,
-            completionTokens: completionTokens
-        )
-        let isEstimated = usage == nil
-
-        return MessageMetrics(
-            promptTokens: promptTokens,
-            completionTokens: completionTokens,
-            totalTokens: totalTokens,
-            latencyMs: latencyMs,
-            estimatedCostUSD: estimatedCostUSD,
-            isEstimated: isEstimated
-        )
-    }
-
-    private func estimatePromptTokens(from messages: [Message]) -> Int {
-        var approxChars = 0
-        for message in messages {
-            let roleOverhead = 8
-            var mediaOverhead = 0
-            for media in message.mediaContents {
-                switch media.type {
-                case .image:
-                    mediaOverhead += 180
-                case .video, .audio, .document, .pdf:
-                    mediaOverhead += 120
-                }
-            }
-            approxChars += message.content.count + roleOverhead + mediaOverhead
-        }
-        return estimateTextTokensByCharCount(approxChars)
-    }
-
-    private func estimateTextTokens(_ text: String) -> Int {
-        estimateTextTokensByCharCount(text.count)
-    }
-
-    private func estimateTextTokensByCharCount(_ charCount: Int) -> Int {
-        guard charCount > 0 else { return 0 }
-        return Int((Double(charCount) / 3.6).rounded(.up))
-    }
-
-    private func estimateCostUSD(model: AIModel, promptTokens: Int, completionTokens: Int) -> Double? {
-        let promptRate = DataTools.ValueParser.decimal(from: model.pricing?.prompt) ?? 0
-        let completionRate = DataTools.ValueParser.decimal(from: model.pricing?.completion) ?? 0
-        guard promptRate > 0 || completionRate > 0 else { return nil }
-
-        let promptCost = Double(promptTokens) * promptRate
-        let completionCost = Double(completionTokens) * completionRate
-        return promptCost + completionCost
-    }
-
-    private func makeNativeFallbackModels(
-        currentModel: AIModel,
-        availableModels: [AIModel],
-        requiresMultimodal: Bool
-    ) -> [String] {
-        let nativeFallbackDepth = AppConfig.nativeFallbackDepth
-        guard AppConfig.fallbackEnabled, nativeFallbackDepth > 0 else { return [] }
-
-        var triedModelIds: Set<String> = [currentModel.id]
-        var cursorModel = currentModel
-        var fallbackModelIDs: [String] = []
-        var attemptIndex = 0
-
-        while attemptIndex < nativeFallbackDepth,
-              let next = fallbackPolicy.nextModel(
-                currentModel: cursorModel,
-                availableModels: availableModels,
-                attemptIndex: attemptIndex,
-                category: .serverUnavailable,
-                budgetMode: AppConfig.fallbackBudgetMode,
-                triedModelIds: triedModelIds,
-                requiresMultimodal: requiresMultimodal
-              ) {
-            let apiModel = next.apiModel.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !apiModel.isEmpty {
-                fallbackModelIDs.append(apiModel)
-            }
-            triedModelIds.insert(next.id)
-            cursorModel = next
-            attemptIndex += 1
-        }
-
-        return fallbackModelIDs
     }
 
     func cancelActive() {

@@ -1,16 +1,11 @@
-//
-//  ChatRowBuilder.swift
-//  EasyAI
-//
-//  创建于 2026
-//  主要功能：
-//  - 将消息与加载状态构建为行模型
-//
-//
-
 import Foundation
 
-enum ChatRowBuilder {
+enum ChatTableUpdateAction: Equatable {
+    case bindSections
+    case streamingReloadLastMarkdownRow
+}
+
+enum ChatRenderPolicyKit {
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -18,7 +13,7 @@ enum ChatRowBuilder {
         return formatter
     }()
 
-    static func build(
+    static func buildRows(
         messages: [Message],
         isLoading: Bool,
         stopNotices: [ChatStopNotice]
@@ -46,17 +41,12 @@ enum ChatRowBuilder {
                     items.append(.messageSend(message))
                 }
             } else if !message.content.isEmpty {
-                // Normal assistant message: render markdown bubble, optionally with a stop status.
-                let statusText = composeStatusText(
-                    message: message,
-                    noticeText: noticeMap[message.id]?.text
-                )
+                let statusText = composeStatusText(message: message, noticeText: noticeMap[message.id]?.text)
                 items.append(.messageMarkdown(message, statusText: statusText))
                 if statusText != nil {
                     noticeAttachedToMessage.insert(message.id)
                 }
             } else if let notice = noticeMap[message.id] {
-                // Stop happened before any text was produced: render a compact status row instead of a tall empty bubble row.
                 items.append(.stopNotice(notice))
                 noticeAttachedToMessage.insert(message.id)
             }
@@ -80,6 +70,35 @@ enum ChatRowBuilder {
         return items
     }
 
+    static func planTableUpdate(prev: ChatListState?, curr: ChatListState) -> ChatTableUpdateAction {
+        guard let prev else { return .bindSections }
+        if prev.conversationId != curr.conversationId { return .bindSections }
+        if prev.isLoading != curr.isLoading { return .bindSections }
+        if prev.stopNotices != curr.stopNotices { return .bindSections }
+        if prev.messages.count != curr.messages.count { return .bindSections }
+        guard curr.messages.count > 0 else { return .bindSections }
+
+        let lastIndex = curr.messages.count - 1
+        let prevLast = prev.messages[lastIndex]
+        let currLast = curr.messages[lastIndex]
+        if prevLast.id != currLast.id { return .bindSections }
+
+        if currLast.isStreaming,
+           prevLast.content.isEmpty,
+           !currLast.content.isEmpty {
+            return .bindSections
+        }
+
+        if currLast.isStreaming,
+           prevLast.isStreaming == currLast.isStreaming,
+           prevLast.wasStreamed == currLast.wasStreamed,
+           prevLast.content != currLast.content {
+            return .streamingReloadLastMarkdownRow
+        }
+
+        return .bindSections
+    }
+
     private static func composeStatusText(message: Message, noticeText: String?) -> String? {
         let metricsText = makeMetricsStatus(message.metrics)
         let runtimeText = message.runtimeStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,9 +108,7 @@ enum ChatRowBuilder {
             guard let value, !value.isEmpty else { return nil }
             return value
         }
-        guard !parts.isEmpty else {
-            return nil
-        }
+        guard !parts.isEmpty else { return nil }
         return parts.joined(separator: " · ")
     }
 
@@ -102,11 +119,9 @@ enum ChatRowBuilder {
         if let totalTokens = metrics.totalTokens {
             parts.append("\(formatInteger(totalTokens)) tok")
         }
-
         if let latencyMs = metrics.latencyMs {
             parts.append(formatLatency(latencyMs))
         }
-
         if let cost = metrics.estimatedCostUSD {
             let prefix = metrics.isEstimated ? "≈" : ""
             parts.append("\(prefix)$\(formatCost(cost))")

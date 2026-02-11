@@ -16,7 +16,7 @@ protocol ChatListStateBuilding {
 
 struct ChatListStateBuilder: ChatListStateBuilding {
     func build(from snapshot: ChatListSnapshot) -> ChatListState {
-        let items = ChatRowBuilder.build(
+        let items = ChatRenderPolicyKit.buildRows(
             messages: snapshot.messages,
             isLoading: snapshot.isLoading,
             stopNotices: snapshot.stopNotices

@@ -107,7 +107,7 @@ final class ChatTableViewController: UIViewController {
         statePairs
             .subscribe(onNext: { [weak self] (pair: (prev: ChatListState?, curr: ChatListState)) in
                 guard let self else { return }
-                switch ChatTableUpdatePlanner.plan(prev: pair.prev, curr: pair.curr) {
+                switch ChatRenderPolicyKit.planTableUpdate(prev: pair.prev, curr: pair.curr) {
                 case .bindSections:
                     self.applyState(pair.curr)
                 case .streamingReloadLastMarkdownRow:
