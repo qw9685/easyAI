@@ -331,7 +331,7 @@ final class ChatViewModel {
                 latestSelectionRequestId = nil
             }
         } catch {
-            print("[ChatViewModel] ⚠️ Failed to load conversation: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to load conversation: \(error)")
             await MainActor.run {
                 guard latestSelectionRequestId == requestId else { return }
                 isSwitchingConversation = false
@@ -345,15 +345,7 @@ final class ChatViewModel {
     }
 
     private func runInBackground<T>(_ work: @escaping () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    continuation.resume(returning: try work())
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        try await RuntimeTools.AsyncExecutor.run(work)
     }
     
     func renameConversation(id: String, title: String) {
@@ -373,7 +365,7 @@ final class ChatViewModel {
                     )
                 }
             } catch {
-                print("[ChatViewModel] ⚠️ Failed to rename conversation: \(error)")
+                RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to rename conversation: \(error)")
             }
         }
     }
@@ -393,7 +385,7 @@ final class ChatViewModel {
                     )
                 }
             } catch {
-                print("[ChatViewModel] ⚠️ Failed to update pin: \(error)")
+                RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to update pin: \(error)")
             }
         }
     }
@@ -416,7 +408,7 @@ final class ChatViewModel {
                     }
                 }
             } catch {
-                print("[ChatViewModel] ⚠️ Failed to delete conversation: \(error)")
+                RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to delete conversation: \(error)")
             }
         }
     }
@@ -434,7 +426,7 @@ final class ChatViewModel {
                     try self.conversationUseCase.deleteMessage(id: id.uuidString)
                 }
             } catch {
-                print("[ChatViewModel] ⚠️ Failed to delete message: \(error)")
+                RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to delete message: \(error)")
             }
         }
     }
@@ -717,7 +709,7 @@ final class ChatViewModel {
                 applyConversationTouch(conversationId: conversationId, touchedAt: now)
             }
         } catch {
-            print("[ChatViewModel] ⚠️ Failed to persist message: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to persist message: \(error)")
         }
     }
     
@@ -730,7 +722,7 @@ final class ChatViewModel {
                 applyConversationTouch(conversationId: conversationId, touchedAt: now)
             }
         } catch {
-            print("[ChatViewModel] ⚠️ Failed to update message: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to update message: \(error)")
         }
     }
     
@@ -750,7 +742,7 @@ final class ChatViewModel {
             try await persistence.resetAll()
         } catch {
             resetError = error
-            print("[ChatViewModel] ⚠️ Failed to reset persistence: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to reset persistence: \(error)")
         }
 
         await MainActor.run {
@@ -785,7 +777,7 @@ final class ChatViewModel {
             conversations.insert(conversation, at: 0)
             return true
         } catch {
-            print("[ChatViewModel] ⚠️ Failed to create conversation: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to create conversation: \(error)")
             errorMessage = "无法创建会话，请稍后重试。"
             return false
         }
@@ -855,7 +847,7 @@ final class ChatViewModel {
                 self.conversations = records
             },
             onError: { error in
-                print("[ChatViewModel] ⚠️ Failed to load conversations: \(error)")
+                RuntimeTools.AppDiagnostics.warn("ChatViewModel", "Failed to load conversations: \(error)")
             }
         )
     }

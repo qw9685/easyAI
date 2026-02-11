@@ -77,8 +77,8 @@ final class ModelRoutingEngine {
         }
 
         let unknownPrice = 1.0
-        let promptPrice = parsePrice(model.pricing?.prompt) ?? unknownPrice
-        let completionPrice = parsePrice(model.pricing?.completion) ?? unknownPrice
+        let promptPrice = DataTools.ValueParser.decimal(from: model.pricing?.prompt) ?? unknownPrice
+        let completionPrice = DataTools.ValueParser.decimal(from: model.pricing?.completion) ?? unknownPrice
         let totalPrice = promptPrice + completionPrice
 
         switch budgetMode {
@@ -97,16 +97,6 @@ final class ModelRoutingEngine {
         }
 
         return value
-    }
-
-    private func parsePrice(_ raw: String?) -> Double? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        let normalized = raw
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        return Double(normalized)
     }
 
     private func qualityBoost(for normalizedName: String) -> Double {

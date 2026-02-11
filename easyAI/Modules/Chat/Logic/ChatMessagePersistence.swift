@@ -33,7 +33,7 @@ final class ChatMessagePersistence {
                     try self.conversationRepository.renameConversation(id: conversationId, title: newTitle)
                     return newTitle
                 } catch {
-                    print("[ChatMessagePersistence] ⚠️ Failed to rename conversation title: \(error)")
+                    RuntimeTools.AppDiagnostics.warn("ChatMessagePersistence", "Failed to rename conversation title: \(error)")
                 }
             }
 
@@ -74,14 +74,6 @@ final class ChatMessagePersistence {
     }
 
     private func runDatabaseTask<T>(_ work: @escaping () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            persistenceQueue.async {
-                do {
-                    continuation.resume(returning: try work())
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        try await RuntimeTools.AsyncExecutor.run(on: persistenceQueue, work)
     }
 }

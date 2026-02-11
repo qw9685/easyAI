@@ -65,7 +65,7 @@ final class ChatInputViewModel {
     func addSelectedImageData(_ data: Data) {
         guard remainingSelectionLimit > 0 else { return }
         guard let image = UIImage(data: data) else { return }
-        let mimeType = Self.detectImageMimeType(data)
+        let mimeType = DataTools.MediaTypeInspector.detectImageMimeType(data)
         let media = MediaContent(id: UUID(), type: .image, data: data, mimeType: mimeType, fileName: nil)
         var updated = selectedImagesRelay.value
         updated.append(SelectedImage(id: media.id, image: image, media: media))
@@ -135,77 +135,28 @@ final class ChatInputViewModel {
         selectedImagesRelay.asObservable()
     }
 
-    static func detectImageMimeType(_ data: Data) -> String {
-        let header = data.prefix(12)
-
-        guard header.count >= 3 else {
-            return "image/jpeg"
-        }
-
-        if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
-            return "image/jpeg"
-        }
-
-        guard header.count >= 4 else {
-            return "image/jpeg"
-        }
-
-        if header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
-            return "image/png"
-        }
-
-        if header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
-            return "image/gif"
-        }
-
-        if header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
-            if header.count >= 12,
-               let webpMark = String(data: header[8..<12], encoding: .ascii)?.uppercased(),
-               webpMark == "WEBP" {
-                return "image/webp"
-            }
-            return "image/jpeg"
-        }
-
-        if header.count >= 12,
-           header[4] == 0x66,
-           header[5] == 0x74,
-           header[6] == 0x79,
-           header[7] == 0x70,
-           let brand = String(data: header[8..<12], encoding: .ascii)?.lowercased(),
-           ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(brand) {
-            return "image/heic"
-        }
-
-        return "image/jpeg"
-    }
-
     private func sanitizeOutgoingText(_ raw: String) -> String {
-        var text = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        var text = DataTools.StringNormalizer.normalizeLineEndings(raw)
 
         let placeholderMarkers: Set<String> = [
             "原文：", "内容：", "主题：", "会议内容：", "报错/上下文：", "目标：", "代码：", "输入："
         ]
 
         var lines = text.components(separatedBy: "\n")
-        while let last = lines.last, last.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        while let last = lines.last, DataTools.StringNormalizer.trimmed(last).isEmpty {
             lines.removeLast()
         }
 
         if let last = lines.last,
-           placeholderMarkers.contains(last.trimmingCharacters(in: .whitespacesAndNewlines)) {
+           placeholderMarkers.contains(DataTools.StringNormalizer.trimmed(last)) {
             lines.removeLast()
-            while let trailing = lines.last, trailing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            while let trailing = lines.last, DataTools.StringNormalizer.trimmed(trailing).isEmpty {
                 lines.removeLast()
             }
         }
 
         text = lines.joined(separator: "\n")
-
-        while text.contains("\n\n\n") {
-            text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n")
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = DataTools.StringNormalizer.collapseExtraBlankLines(text, maxConsecutive: 2)
+        return DataTools.StringNormalizer.trimmed(text)
     }
 }

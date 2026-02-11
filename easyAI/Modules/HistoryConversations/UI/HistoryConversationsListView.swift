@@ -322,14 +322,11 @@ struct HistoryConversationsListView: View {
     }
 
     private func fetchRecentMessagesInBackground(conversationId: String, limit: Int) async -> [Message]? {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let messages = try? MessageRepository.shared.fetchRecentMessages(
-                    conversationId: conversationId,
-                    limit: limit
-                )
-                continuation.resume(returning: messages)
-            }
+        await RuntimeTools.AsyncExecutor.run {
+            try? MessageRepository.shared.fetchRecentMessages(
+                conversationId: conversationId,
+                limit: limit
+            )
         }
     }
 }

@@ -690,23 +690,13 @@ final class ChatSendMessageUseCase {
     }
 
     private func estimateCostUSD(model: AIModel, promptTokens: Int, completionTokens: Int) -> Double? {
-        let promptRate = parsePrice(model.pricing?.prompt) ?? 0
-        let completionRate = parsePrice(model.pricing?.completion) ?? 0
+        let promptRate = DataTools.ValueParser.decimal(from: model.pricing?.prompt) ?? 0
+        let completionRate = DataTools.ValueParser.decimal(from: model.pricing?.completion) ?? 0
         guard promptRate > 0 || completionRate > 0 else { return nil }
 
         let promptCost = Double(promptTokens) * promptRate
         let completionCost = Double(completionTokens) * completionRate
         return promptCost + completionCost
-    }
-
-    private func parsePrice(_ raw: String?) -> Double? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        let normalized = raw
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        return Double(normalized)
     }
 
     private func makeNativeFallbackModels(
@@ -842,8 +832,9 @@ private extension ChatTypewriter {
                     let avgTickMs = tickCount > 1
                         ? totalTickIntervalMs / Double(tickCount - 1)
                         : 0
-                    print(
-                        "[ConversationPerf][typewriter] ticks=\(tickCount) | shown=\(displayText.count) | target=\(targetText.count) | lastTickMs=\(String(format: "%.1f", tickIntervalMs)) | avgTickMs=\(String(format: "%.1f", avgTickMs))"
+                    RuntimeTools.AppDiagnostics.debug(
+                        "ConversationPerf",
+                        "[typewriter] ticks=\(tickCount) | shown=\(displayText.count) | target=\(targetText.count) | lastTickMs=\(String(format: "%.1f", tickIntervalMs)) | avgTickMs=\(String(format: "%.1f", avgTickMs))"
                     )
                 }
             } else if streamEnded {
@@ -852,8 +843,9 @@ private extension ChatTypewriter {
                     let avgTickMs = tickCount > 1
                         ? totalTickIntervalMs / Double(tickCount - 1)
                         : 0
-                    print(
-                        "[ConversationPerf][typewriter] done | ticks=\(tickCount) | len=\(targetText.count) | avgTickMs=\(String(format: "%.1f", avgTickMs)) | maxTickMs=\(String(format: "%.1f", maxTickIntervalMs))"
+                    RuntimeTools.AppDiagnostics.debug(
+                        "ConversationPerf",
+                        "[typewriter] done | ticks=\(tickCount) | len=\(targetText.count) | avgTickMs=\(String(format: "%.1f", avgTickMs)) | maxTickMs=\(String(format: "%.1f", maxTickIntervalMs))"
                     )
                 }
                 onFinish()

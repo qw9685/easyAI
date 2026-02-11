@@ -35,7 +35,7 @@ final class ChatStopNoticeCell: UITableViewCell {
 
     func configure(notice: ChatStopNotice) {
         statusLabel.text = notice.text
-        timestampLabel.text = Self.formatTime(notice.timestamp)
+        timestampLabel.text = DataTools.TimeFormatterCenter.clockTime(notice.timestamp)
     }
 
     private func setupViews() {
@@ -67,11 +67,5 @@ final class ChatStopNoticeCell: UITableViewCell {
             make.trailing.lessThanOrEqualToSuperview().inset(20)
             make.bottom.equalToSuperview().inset(8)
         }
-    }
-
-    private static func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
     }
 }

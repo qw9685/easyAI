@@ -19,7 +19,7 @@ struct OpenRouterResponseValidator {
         guard httpResponse.statusCode == 200 else {
             let errorMessage = data.flatMap { String(data: $0, encoding: .utf8) } ?? "Unknown error"
             if AppConfig.enablephaseLogs {
-                print("[OpenRouterChatService] ❌ API error:", errorMessage)
+                RuntimeTools.AppDiagnostics.warn("OpenRouterChatService", "❌ API error: \(errorMessage)")
             }
 
             if httpResponse.statusCode == 402 {

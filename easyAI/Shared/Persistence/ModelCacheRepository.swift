@@ -32,27 +32,27 @@ final class ModelCacheRepository {
 
             let models: [OpenRouterModelInfo]
             do {
-                models = try JSONDecoder().decode([OpenRouterModelInfo].self, from: record.payload)
+                models = try DataTools.CodecCenter.jsonDecoder.decode([OpenRouterModelInfo].self, from: record.payload)
             } catch {
-                print("[ModelCacheRepository] ⚠️ Cache payload decode failed: \(error)")
+                RuntimeTools.AppDiagnostics.warn("ModelCacheRepository", "Cache payload decode failed: \(error)")
                 clearCache()
                 return nil
             }
 
             return (models: models, updatedAt: record.updatedAt)
         } catch {
-            print("[ModelCacheRepository] ⚠️ Failed to read cache: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ModelCacheRepository", "Failed to read cache: \(error)")
             return nil
         }
     }
 
     func writeCache(models: [OpenRouterModelInfo]) {
-        guard let payload = try? JSONEncoder().encode(models) else { return }
+        guard let payload = try? DataTools.CodecCenter.jsonEncoder.encode(models) else { return }
         let record = ModelCacheRecord(id: cacheId, payload: payload, updatedAt: Date())
         do {
             try database.insertOrReplace(record, intoTable: WCDBTables.modelCache)
         } catch {
-            print("[ModelCacheRepository] ⚠️ Failed to write cache: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ModelCacheRepository", "Failed to write cache: \(error)")
         }
     }
 
@@ -61,7 +61,7 @@ final class ModelCacheRepository {
             try database.delete(fromTable: WCDBTables.modelCache,
                                 where: ModelCacheRecord.Properties.id == cacheId)
         } catch {
-            print("[ModelCacheRepository] ⚠️ Failed to clear cache: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ModelCacheRepository", "Failed to clear cache: \(error)")
         }
     }
 }

@@ -76,7 +76,7 @@ final class WCDBManager {
                 UserDefaults.standard.set(latestVersion, forKey: versionKey)
             }
         } catch {
-            print("[WCDBManager] ⚠️ Failed to setup schema: \(error)")
+            RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to setup schema: \(error)")
         }
     }
 
@@ -139,7 +139,7 @@ final class WCDBManager {
                 if isSchemaAlreadyExistsError(error) {
                     continue
                 }
-                print("[WCDBManager] ⚠️ Failed to add column \(column.name): \(error)")
+                RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to add column \(column.name): \(error)")
             }
         }
     }
@@ -161,7 +161,7 @@ final class WCDBManager {
                 if isSchemaAlreadyExistsError(error) {
                     continue
                 }
-                print("[WCDBManager] ⚠️ Failed to add column \(column.name): \(error)")
+                RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to add column \(column.name): \(error)")
             }
         }
     }

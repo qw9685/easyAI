@@ -104,8 +104,7 @@ struct SSEParser {
 
         guard let jsonData = jsonString.data(using: .utf8) else { return nil }
         do {
-            let decoder = JSONDecoder()
-            let streamResponse = try decoder.decode(OpenRouterStreamResponse.self, from: jsonData)
+            let streamResponse = try DataTools.CodecCenter.jsonDecoder.decode(OpenRouterStreamResponse.self, from: jsonData)
             if let choice = streamResponse.choices.first {
                 if let content = choice.delta.content, !content.isEmpty {
                     return .delta(content)
@@ -116,8 +115,8 @@ struct SSEParser {
             }
         } catch {
             if let jsonPreview = String(data: jsonData.prefix(200), encoding: .utf8) {
-                print("[SSEParser] ⚠️ Failed to parse SSE data: \(error)")
-                print("  JSON preview: \(jsonPreview)")
+                RuntimeTools.AppDiagnostics.warn("SSEParser", "Failed to parse SSE data: \(error)")
+                RuntimeTools.AppDiagnostics.debug("SSEParser", "JSON preview: \(jsonPreview)")
             }
         }
         return nil

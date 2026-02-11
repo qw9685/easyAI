@@ -53,7 +53,7 @@ final class ModelRepository: ModelRepositoryProtocol {
             let filtered = applyFilter(models, filter: filter)
             return filtered.map { mapToAIModel($0) }
         } catch {
-            print("[ModelRepository] ⚠️ Failed to fetch models: \(error)")
+            RuntimeTools.AppDiagnostics.warn("ModelRepository", "Failed to fetch models: \(error)")
             if let cached = cacheRepository.readCache() {
                 let filtered = applyFilter(cached.models, filter: filter)
                 return filtered.map { mapToAIModel($0) }
@@ -69,23 +69,13 @@ final class ModelRepository: ModelRepositoryProtocol {
         case .freeOnly:
             return models.filter { model in
                 guard let pricing = model.pricing else { return false }
-                guard let promptPrice = parsePrice(pricing.prompt),
-                      let completionPrice = parsePrice(pricing.completion) else {
+                guard let promptPrice = DataTools.ValueParser.decimal(from: pricing.prompt),
+                      let completionPrice = DataTools.ValueParser.decimal(from: pricing.completion) else {
                     return false
                 }
                 return promptPrice == 0 && completionPrice == 0
             }
         }
-    }
-
-    private func parsePrice(_ raw: String?) -> Double? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        let normalized = raw
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        return Double(normalized)
     }
 
     private func mapToAIModel(_ modelInfo: OpenRouterModelInfo) -> AIModel {

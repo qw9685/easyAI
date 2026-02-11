@@ -36,15 +36,8 @@ final class ConversationListUseCase {
             }
             guard !Task.isCancelled else { return }
             do {
-                let records = try await withCheckedThrowingContinuation { continuation in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        do {
-                            let records = try self.coordinator.fetchAllConversations()
-                            continuation.resume(returning: records)
-                        } catch {
-                            continuation.resume(throwing: error)
-                        }
-                    }
+                let records = try await RuntimeTools.AsyncExecutor.run {
+                    try self.coordinator.fetchAllConversations()
                 }
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
@@ -64,19 +57,9 @@ final class ConversationListUseCase {
     }
 
     func fetchMessagesInBackground(conversationId: String) async throws -> [Message] {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else {
-                    continuation.resume(returning: [])
-                    return
-                }
-                do {
-                    let messages = try self.coordinator.fetchMessages(conversationId: conversationId)
-                    continuation.resume(returning: messages)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await RuntimeTools.AsyncExecutor.run { [weak self] in
+            guard let self else { return [] }
+            return try self.coordinator.fetchMessages(conversationId: conversationId)
         }
     }
 

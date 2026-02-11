@@ -33,7 +33,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
         }
 
         if AppConfig.useMockData {
-            print("[OpenRouterChatService] MOCK request → model=\(model), messages=\(messages.count)")
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "MOCK request → model=\(model), messages=\(messages.count)")
             let content = try await mock.response(messages: messages, model: model)
             return ChatServiceResponse(content: content, usage: nil)
         }
@@ -43,11 +43,10 @@ final class OpenRouterChatService: ChatServiceProtocol {
         let httpResponse = try validator.validate(response: response, data: data, model: model)
 
         if AppConfig.enablephaseLogs {
-            print("[OpenRouterChatService] ◀️ Response status =", httpResponse.statusCode)
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "◀️ Response status = \(httpResponse.statusCode)")
         }
 
-        let decoder = JSONDecoder()
-        let responseData = try decoder.decode(OpenRouterChatResponse.self, from: data)
+        let responseData = try DataTools.CodecCenter.jsonDecoder.decode(OpenRouterChatResponse.self, from: data)
         guard let content = responseData.choices.first?.message.content else {
             throw OpenRouterError.invalidResponse
         }
@@ -118,18 +117,17 @@ final class OpenRouterChatService: ChatServiceProtocol {
         let request = try requestBuilder.makeModelsRequest()
 
         if AppConfig.enablephaseLogs {
-            print("[OpenRouterChatService] 📋 Fetching models list...")
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "📋 Fetching models list...")
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         let httpResponse = try validator.validate(response: response, data: data, model: nil)
         if AppConfig.enablephaseLogs {
-            print("[OpenRouterChatService] ◀️ Models response status =", httpResponse.statusCode)
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "◀️ Models response status = \(httpResponse.statusCode)")
         }
 
-        let decoder = JSONDecoder()
-        let modelsResponse = try decoder.decode(OpenRouterModelsResponse.self, from: data)
+        let modelsResponse = try DataTools.CodecCenter.jsonDecoder.decode(OpenRouterModelsResponse.self, from: data)
         if AppConfig.enablephaseLogs {
-            print("[OpenRouterChatService] ✅ Fetched \(modelsResponse.data.count) models")
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "✅ Fetched \(modelsResponse.data.count) models")
         }
         return modelsResponse.data
     }

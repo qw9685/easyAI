@@ -4,7 +4,9 @@
 
 ## 🎬 Demo
 
-![EasyAI Demo](demo.gif)
+| 历史 | 聊天 | 设置 |
+| --- | --- | --- |
+| ![History Demo](history.gif) | ![Chat Demo](chat.gif) | ![Settings Demo](set.gif) |
 
 ## ✨ 功能特性
 

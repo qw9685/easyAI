@@ -149,12 +149,7 @@ private extension MarkdownHTMLBlockView {
     }
 
     func latexBody(for latex: String) -> String {
-        var escaped = latex
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-        escaped = escaped.replacingOccurrences(of: "\n", with: "\n")
-        return escaped
+        DataTools.MarkupEscaper.escapeHTML(latex)
     }
 
     func sanitizeHTMLBody(_ raw: String) -> String {

@@ -83,19 +83,9 @@ struct ModelFallbackPolicy {
 
     private func promptPlusCompletionCost(_ model: AIModel) -> Double {
         let unknownCost = Double.greatestFiniteMagnitude / 4
-        let prompt = parsePrice(model.pricing?.prompt) ?? unknownCost
-        let completion = parsePrice(model.pricing?.completion) ?? unknownCost
+        let prompt = DataTools.ValueParser.decimal(from: model.pricing?.prompt) ?? unknownCost
+        let completion = DataTools.ValueParser.decimal(from: model.pricing?.completion) ?? unknownCost
         return prompt + completion
-    }
-
-    private func parsePrice(_ raw: String?) -> Double? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        let normalized = raw
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        return Double(normalized)
     }
 
     private func qualityScore(model: AIModel) -> Int {

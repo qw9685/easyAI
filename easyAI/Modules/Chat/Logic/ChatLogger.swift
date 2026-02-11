@@ -19,7 +19,6 @@ struct ChatLogger {
 
     func phase(_ message: @autoclosure () -> String) {
         guard isphaseEnabled() else { return }
-        print("[ConversationSSE][phase] \(message())")
+        RuntimeTools.AppDiagnostics.debug("ConversationSSE", "[phase] \(message())")
     }
 }
-

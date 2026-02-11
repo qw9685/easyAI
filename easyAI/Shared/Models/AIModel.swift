@@ -63,21 +63,11 @@ extension AIModel {
     /// 是否免费模型
     var isFree: Bool {
         guard let pricing,
-              let promptPrice = parsePrice(pricing.prompt),
-              let completionPrice = parsePrice(pricing.completion) else {
+              let promptPrice = DataTools.ValueParser.decimal(from: pricing.prompt),
+              let completionPrice = DataTools.ValueParser.decimal(from: pricing.completion) else {
             return false
         }
         return promptPrice == 0 && completionPrice == 0
-    }
-
-    private func parsePrice(_ raw: String?) -> Double? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        let normalized = raw
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        return Double(normalized)
     }
 }
 

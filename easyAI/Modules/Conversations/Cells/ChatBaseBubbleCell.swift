@@ -76,7 +76,7 @@ class ChatBaseBubbleCell: UITableViewCell {
 
         if showTimestamp, let timestamp {
             timestampLabel.isHidden = false
-            timestampLabel.text = Self.formatTime(timestamp)
+            timestampLabel.text = DataTools.TimeFormatterCenter.clockTime(timestamp)
         } else {
             timestampLabel.isHidden = true
             timestampLabel.text = nil
@@ -192,11 +192,5 @@ class ChatBaseBubbleCell: UITableViewCell {
             timestampTrailingConstraint?.deactivate()
             timestampLeadingConstraint?.activate()
         }
-    }
-
-    private static func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
     }
 }

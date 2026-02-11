@@ -555,23 +555,10 @@ final class ChatInputBarViewController: UIViewController {
     }
 
     private func normalizeTemplateText(_ raw: String) -> String {
-        var text = raw
+        var text = DataTools.StringNormalizer.normalizeLineEndings(raw)
         let markers = ["包含：", "输出：", "要求：", "目标：", "步骤：", "约束：", "输入：", "内容：", "主题："]
-
-        for marker in markers {
-            text = text.replacingOccurrences(of: marker + " ", with: marker + "\n")
-            if let range = text.range(of: marker),
-               range.upperBound < text.endIndex,
-               text[range.upperBound] != "\n" {
-                text.insert("\n", at: range.upperBound)
-            }
-        }
-
-        while text.contains("\n\n\n") {
-            text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n")
-        }
-
-        return text
+        text = DataTools.StringNormalizer.applyLineBreakAfterMarkers(text, markers: markers)
+        return DataTools.StringNormalizer.collapseExtraBlankLines(text, maxConsecutive: 2)
     }
 
 }

@@ -50,29 +50,29 @@ struct OpenRouterRequestBuilder {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         if AppConfig.enablephaseLogs {
-            print("[OpenRouterChatService] ▶️ Sending request")
-            print("  • URL      :", OpenRouterConfig.chatURL)
-            print("  • Model    :", model)
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "▶️ Sending request")
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • URL      : \(OpenRouterConfig.chatURL)")
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • Model    : \(model)")
             if !fallbackChain.isEmpty {
-                print("  • Fallback :", fallbackChain.joined(separator: " -> "))
+                RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • Fallback : \(fallbackChain.joined(separator: " -> "))")
             }
-            print("  • Messages :", messages.count)
+            RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • Messages : \(messages.count)")
 
             if let jsonData = request.httpBody {
                 let previewData = jsonData.prefix(1000)
                 let preview = String(data: previewData, encoding: .utf8) ?? "<non-utf8 payload preview>"
-                print("  • Request body preview:", preview)
+                RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • Request body preview: \(preview)")
                 if jsonData.count > 1000 {
-                    print("  • ... (truncated, total \(jsonData.count) bytes)")
+                    RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • ... (truncated, total \(jsonData.count) bytes)")
                 }
             }
 
             if messages.contains(where: { $0.hasMedia }) {
                 let mediaCount = messages.filter { $0.hasMedia }.count
-                print("  • Media    :", mediaCount, "message(s) with media")
+                RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • Media    : \(mediaCount) message(s) with media")
                 for message in messages where message.hasMedia {
                     let debugInfo = MessageConverter.getDebugInfo(message)
-                    print("  • Message[\(message.id.uuidString.prefix(8))]: \(debugInfo)")
+                    RuntimeTools.AppDiagnostics.debug("OpenRouterChatService", "  • Message[\(message.id.uuidString.prefix(8))]: \(debugInfo)")
                 }
             }
         }

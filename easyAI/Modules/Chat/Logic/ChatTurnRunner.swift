@@ -65,8 +65,9 @@ final class ChatTurnRunner {
                 let avgChunkMs = chunkCount > 1
                     ? totalChunkIntervalMs / Double(chunkCount - 1)
                     : 0
-                print(
-                    "[ConversationPerf][stream] model=\(model) | chunks=\(chunkCount) | len=\(fullContent.count) | lastChunkMs=\(String(format: "%.1f", chunkIntervalMs)) | avgChunkMs=\(String(format: "%.1f", avgChunkMs))"
+                RuntimeTools.AppDiagnostics.debug(
+                    "ConversationPerf",
+                    "[stream] model=\(model) | chunks=\(chunkCount) | len=\(fullContent.count) | lastChunkMs=\(String(format: "%.1f", chunkIntervalMs)) | avgChunkMs=\(String(format: "%.1f", avgChunkMs))"
                 )
             }
 
@@ -80,8 +81,9 @@ final class ChatTurnRunner {
             let avgChunkMs = chunkCount > 1
                 ? totalChunkIntervalMs / Double(chunkCount - 1)
                 : 0
-            print(
-                "[ConversationPerf][stream] done | model=\(model) | chunks=\(chunkCount) | len=\(fullContent.count) | durationMs=\(durationMs) | avgChunkMs=\(String(format: "%.1f", avgChunkMs)) | maxChunkMs=\(String(format: "%.1f", maxChunkIntervalMs))"
+            RuntimeTools.AppDiagnostics.debug(
+                "ConversationPerf",
+                "[stream] done | model=\(model) | chunks=\(chunkCount) | len=\(fullContent.count) | durationMs=\(durationMs) | avgChunkMs=\(String(format: "%.1f", avgChunkMs)) | maxChunkMs=\(String(format: "%.1f", maxChunkIntervalMs))"
             )
         }
         return ChatStreamResult(fullContent: fullContent, chunkCount: chunkCount, durationMs: durationMs)

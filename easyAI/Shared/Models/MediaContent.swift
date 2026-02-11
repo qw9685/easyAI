@@ -82,12 +82,12 @@ extension MediaContent {
         }
         
         // 根据实际数据判断 MIME 类型
-        let detectedMimeType = detectImageMimeType(imageData) ?? mimeType
-        
+        let detectedMimeType = DataTools.MediaTypeInspector.detectImageMimeType(imageData)
+
         return MediaContent(
             type: .image,
             data: imageData,
-            mimeType: detectedMimeType
+            mimeType: detectedMimeType.isEmpty ? mimeType : detectedMimeType
         )
     }
     
@@ -127,35 +127,12 @@ extension MediaContent {
         guard header.count >= 3 else {
             return nil
         }
-        
-        // 图片类型
-        if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
-            return "image/jpeg"
-        }
-        if header.count >= 4 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
-            return "image/png"
-        }
-        if header.count >= 3 && header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
-            return "image/gif"
-        }
-        if header.count >= 4 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
-            // 可能是 WebP 或 RIFF 格式，需要进一步检查
-            if header.count >= 12,
-               let webpMark = String(data: header[8..<12], encoding: .ascii)?.uppercased(),
-               webpMark == "WEBP" {
-                return "image/webp"
-            }
-        }
 
-        // HEIC / HEIF（ISO BMFF）
-        if header.count >= 12,
-           header[4] == 0x66,
-           header[5] == 0x74,
-           header[6] == 0x79,
-           header[7] == 0x70,
-           let brand = String(data: header[8..<12], encoding: .ascii)?.lowercased(),
-           ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(brand) {
-            return "image/heic"
+        // 图片类型
+        let imageMimeType = DataTools.MediaTypeInspector.detectImageMimeType(data)
+        let isJPEG = header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF
+        if imageMimeType != "image/jpeg" || isJPEG {
+            return imageMimeType
         }
         
         // PDF
@@ -178,43 +155,4 @@ extension MediaContent {
         
         return nil
     }
-    
-    /// 检测图片的 MIME 类型
-    private static func detectImageMimeType(_ data: Data) -> String? {
-        let header = data.prefix(12)
-        
-        guard header.count >= 3 else {
-            return "image/jpeg"
-        }
-        
-        if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
-            return "image/jpeg"
-        }
-        if header.count >= 4 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
-            return "image/png"
-        }
-        if header.count >= 3 && header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
-            return "image/gif"
-        }
-        if header.count >= 4 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
-            if header.count >= 12,
-               let webpMark = String(data: header[8..<12], encoding: .ascii)?.uppercased(),
-               webpMark == "WEBP" {
-                return "image/webp"
-            }
-        }
-
-        if header.count >= 12,
-           header[4] == 0x66,
-           header[5] == 0x74,
-           header[6] == 0x79,
-           header[7] == 0x70,
-           let brand = String(data: header[8..<12], encoding: .ascii)?.lowercased(),
-           ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(brand) {
-            return "image/heic"
-        }
-        
-        return "image/jpeg" // 默认
-    }
 }
-
