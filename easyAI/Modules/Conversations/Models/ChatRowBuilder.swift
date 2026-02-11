@@ -11,6 +11,13 @@
 import Foundation
 
 enum ChatRowBuilder {
+    private static let numberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
     static func build(
         messages: [Message],
         isLoading: Bool,
@@ -40,7 +47,10 @@ enum ChatRowBuilder {
                 }
             } else if !message.content.isEmpty {
                 // Normal assistant message: render markdown bubble, optionally with a stop status.
-                let statusText = noticeMap[message.id]?.text
+                let statusText = composeStatusText(
+                    message: message,
+                    noticeText: noticeMap[message.id]?.text
+                )
                 items.append(.messageMarkdown(message, statusText: statusText))
                 if statusText != nil {
                     noticeAttachedToMessage.insert(message.id)
@@ -68,5 +78,60 @@ enum ChatRowBuilder {
         }
 
         return items
+    }
+
+    private static func composeStatusText(message: Message, noticeText: String?) -> String? {
+        let metricsText = makeMetricsStatus(message.metrics)
+        let runtimeText = message.runtimeStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let notice = noticeText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = [notice, runtimeText, metricsText].compactMap { value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+        guard !parts.isEmpty else {
+            return nil
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func makeMetricsStatus(_ metrics: MessageMetrics?) -> String? {
+        guard let metrics else { return nil }
+
+        var parts: [String] = []
+        if let totalTokens = metrics.totalTokens {
+            parts.append("\(formatInteger(totalTokens)) tok")
+        }
+
+        if let latencyMs = metrics.latencyMs {
+            parts.append(formatLatency(latencyMs))
+        }
+
+        if let cost = metrics.estimatedCostUSD {
+            let prefix = metrics.isEstimated ? "≈" : ""
+            parts.append("\(prefix)$\(formatCost(cost))")
+        }
+
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func formatInteger(_ value: Int) -> String {
+        numberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    private static func formatLatency(_ latencyMs: Int) -> String {
+        if latencyMs < 1000 {
+            return "\(latencyMs)ms"
+        }
+        let seconds = Double(latencyMs) / 1000
+        return String(format: "%.2fs", seconds)
+    }
+
+    private static func formatCost(_ usd: Double) -> String {
+        if usd < 0.0001 {
+            return "<0.0001"
+        }
+        return String(format: "%.4f", usd)
     }
 }

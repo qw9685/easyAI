@@ -12,6 +12,8 @@
 import Foundation
 
 struct SSEParser {
+    private let streamInactivityTimeoutSeconds: TimeInterval = 120
+
     private enum Event {
         case delta(String)
         case done
@@ -19,9 +21,10 @@ struct SSEParser {
 
     func parse(asyncBytes: URLSession.AsyncBytes) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let parseTask = Task {
                 do {
                     var buffer = Data()
+                    var lastMeaningfulEventTime = Date()
                     for try await byte in asyncBytes {
                         buffer.append(byte)
                         while let newlineIndex = buffer.firstIndex(of: 0x0A) {
@@ -36,6 +39,11 @@ struct SSEParser {
                                 continue
                             }
 
+                            let hasLineContent = !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            if hasLineContent {
+                                lastMeaningfulEventTime = Date()
+                            }
+
                             switch parseLine(line) {
                             case .delta(let delta):
                                 continuation.yield(delta)
@@ -44,6 +52,11 @@ struct SSEParser {
                                 return
                             case .none:
                                 break
+                            }
+
+                            if Date().timeIntervalSince(lastMeaningfulEventTime) >= streamInactivityTimeoutSeconds {
+                                continuation.finish(throwing: URLError(.timedOut))
+                                return
                             }
                         }
                     }
@@ -65,13 +78,27 @@ struct SSEParser {
                     continuation.finish(throwing: error)
                 }
             }
+
+            continuation.onTermination = { @Sendable _ in
+                parseTask.cancel()
+            }
         }
     }
 
     private func parseLine(_ line: String) -> Event? {
-        guard line.hasPrefix("data: ") else { return nil }
-        let jsonString = String(line.dropFirst(6))
-        if jsonString.trimmingCharacters(in: .whitespaces) == "[DONE]" {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty else { return nil }
+
+        let lowercased = trimmedLine.lowercased()
+        if lowercased.hasPrefix("event:") || lowercased.hasPrefix(":") {
+            return nil
+        }
+
+        guard lowercased.hasPrefix("data:") else { return nil }
+        let payloadStart = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
+        let jsonString = String(trimmedLine[payloadStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !jsonString.isEmpty else { return nil }
+        if jsonString.uppercased() == "[DONE]" {
             return .done
         }
 

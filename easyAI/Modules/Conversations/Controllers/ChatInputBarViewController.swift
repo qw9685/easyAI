@@ -36,6 +36,10 @@ final class ChatInputBarViewController: UIViewController {
     private let inputContainer = UIView()
     private let selectedImagesCollection: UICollectionView
     private var selectedImagesHeightConstraint: Constraint?
+    private let templateScrollView = UIScrollView()
+    private let templateStackView = UIStackView()
+    private var templateRowHeightConstraint: Constraint?
+    private var rowStackTopConstraint: Constraint?
 
     private let textView = UITextView()
     private var textViewHeightConstraint: Constraint?
@@ -50,8 +54,12 @@ final class ChatInputBarViewController: UIViewController {
     private let textMinHeight: CGFloat = 20
     private var cachedPhotoPicker: PHPickerViewController?
     private var isRecognizing: Bool = false
+    private var isRequestingSpeechPermission: Bool = false
     private var recognitionBaseText: String = ""
     private let speechManager = SpeechToTextManager.shared
+    private let promptTemplateUseCase = PromptTemplateUseCase()
+    private var templateDraftText: String?
+    private var selectedTemplateId: String?
 
     init(viewModel: ChatViewModel, actionHandler: ((ChatViewModel.Action) -> Void)? = nil) {
         self.viewModel = viewModel
@@ -85,6 +93,11 @@ final class ChatInputBarViewController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             self?.warmUpPhotoPickerIfNeeded()
         }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stopRecognitionIfNeeded()
     }
 
     private func warmUpPhotoLibrary() {
@@ -137,9 +150,32 @@ final class ChatInputBarViewController: UIViewController {
         rowStack.axis = .horizontal
         rowStack.alignment = .center
         rowStack.spacing = 12
+
+        templateScrollView.showsHorizontalScrollIndicator = false
+        templateScrollView.alwaysBounceHorizontal = true
+        templateScrollView.backgroundColor = .clear
+        templateScrollView.accessibilityIdentifier = "ChatInput.TemplateScrollView"
+        rootBackground.addSubview(templateScrollView)
+        templateScrollView.snp.makeConstraints { make in
+            make.top.equalToSuperview().offset(8)
+            make.leading.trailing.equalToSuperview().inset(16)
+            templateRowHeightConstraint = make.height.equalTo(30).constraint
+        }
+
+        templateStackView.axis = .horizontal
+        templateStackView.alignment = .fill
+        templateStackView.distribution = .fillProportionally
+        templateStackView.spacing = 8
+        templateScrollView.addSubview(templateStackView)
+        templateStackView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+            make.height.equalToSuperview()
+        }
+        reloadTemplateRow()
+
         rootBackground.addSubview(rowStack)
         rowStack.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(12)
+            rowStackTopConstraint = make.top.equalTo(templateScrollView.snp.bottom).offset(8).constraint
             make.leading.trailing.equalToSuperview().inset(16)
             make.bottom.equalToSuperview().inset(12)
         }
@@ -182,6 +218,7 @@ final class ChatInputBarViewController: UIViewController {
         if let placeholder = textView.viewWithTag(999) as? UILabel {
             placeholder.textColor = AppTheme.textTertiary
         }
+        refreshTemplateDraftStyle()
         updateUI()
     }
 
@@ -313,6 +350,7 @@ final class ChatInputBarViewController: UIViewController {
                 if self.textView.text != text {
                     self.textView.text = text
                 }
+                self.refreshTemplateDraftStyle()
                 self.updatePlaceholder()
                 self.recalcTextHeight()
                 self.updateUI()
@@ -424,15 +462,118 @@ final class ChatInputBarViewController: UIViewController {
         stopRecognitionIfNeeded()
         let remaining = input.remainingSelectionLimit
         guard remaining > 0 else { return }
+        guard presentedViewController == nil else { return }
         // PHPickerViewController.configuration 是只读的；selectionLimit 需要在创建时确定。
         // 这里每次点击都新建 picker，但首次创建成本已通过 warmUpPhotoPickerIfNeeded 提前支付。
         let picker = makePhotoPicker(selectionLimit: remaining)
 
         view.endEditing(true)
         DispatchQueue.main.async { [weak self] in
-            self?.present(picker, animated: true)
+            guard let self else { return }
+            guard self.viewIfLoaded?.window != nil else { return }
+            guard self.presentedViewController == nil else { return }
+            self.present(picker, animated: true)
         }
     }
+
+    private func applyTemplate(_ template: PromptTemplate) {
+        let normalizedTemplate = normalizeTemplateText(template.promptTemplate)
+        templateDraftText = normalizedTemplate
+        selectedTemplateId = template.id
+        reloadTemplateRow()
+        let existing = input.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if existing.isEmpty {
+            input.inputText = normalizedTemplate
+        } else {
+            input.inputText = "\(normalizedTemplate)\n\n\(existing)"
+        }
+
+        if let recommended = promptTemplateUseCase.findRecommendedModel(
+            for: template,
+            availableModels: viewModel.availableModels
+        ) {
+            viewModel.selectedModel = recommended
+            viewModel.emitEvent(.switchToChat)
+        }
+
+        focusInputToTail()
+    }
+
+    private func focusInputToTail() {
+        textView.becomeFirstResponder()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let tail = self.textView.text?.utf16.count ?? 0
+            self.textView.selectedRange = NSRange(location: tail, length: 0)
+        }
+    }
+
+    private func reloadTemplateRow() {
+        templateStackView.arrangedSubviews.forEach {
+            templateStackView.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+
+        let templates = promptTemplateUseCase.fetchTemplates()
+        let hasTemplates = !templates.isEmpty
+        templateRowHeightConstraint?.update(offset: hasTemplates ? 30 : 0)
+        templateScrollView.isHidden = !hasTemplates
+        rowStackTopConstraint?.update(offset: hasTemplates ? 8 : 0)
+
+        for template in templates {
+            let isSelected = template.id == selectedTemplateId
+            let button = UIButton(type: .system)
+            button.setTitle(template.title, for: .normal)
+            button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
+            button.setTitleColor(isSelected ? .white : AppTheme.textSecondary, for: .normal)
+            button.backgroundColor = isSelected ? AppTheme.accent : AppTheme.surfaceAlt
+            button.layer.cornerRadius = 10
+            button.layer.masksToBounds = true
+            if #available(iOS 15.0, *) {
+                var configuration = button.configuration ?? UIButton.Configuration.plain()
+                configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+                button.configuration = configuration
+            } else {
+                button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
+            }
+            button.addAction(UIAction(handler: { [weak self] _ in
+                self?.stopRecognitionIfNeeded()
+                self?.applyTemplate(template)
+            }), for: .touchUpInside)
+            templateStackView.addArrangedSubview(button)
+        }
+    }
+
+    private func refreshTemplateDraftStyle() {
+        guard let draft = templateDraftText,
+              !draft.isEmpty,
+              textView.text == draft else {
+            textView.textColor = AppTheme.textPrimary
+            return
+        }
+        textView.textColor = AppTheme.textSecondary
+    }
+
+    private func normalizeTemplateText(_ raw: String) -> String {
+        var text = raw
+        let markers = ["包含：", "输出：", "要求：", "目标：", "步骤：", "约束：", "输入：", "内容：", "主题："]
+
+        for marker in markers {
+            text = text.replacingOccurrences(of: marker + " ", with: marker + "\n")
+            if let range = text.range(of: marker),
+               range.upperBound < text.endIndex,
+               text[range.upperBound] != "\n" {
+                text.insert("\n", at: range.upperBound)
+            }
+        }
+
+        while text.contains("\n\n\n") {
+            text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+
+        return text
+    }
+
 }
 
 private extension ChatInputBarViewController {
@@ -477,13 +618,19 @@ private extension ChatInputBarViewController {
 #if targetEnvironment(simulator)
         showSpeechPermissionAlert(message: "模拟器不支持录音，请在真机测试语音输入。")
         return
-#endif
+#else
         if isRecognizing {
             stopRecognitionIfNeeded()
             return
         }
 
-        Task { @MainActor in
+        guard !isRequestingSpeechPermission else { return }
+        isRequestingSpeechPermission = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isRequestingSpeechPermission = false }
+
             let allowed = await speechManager.requestPermissions()
             guard allowed else {
                 showSpeechPermissionAlert(message: "请在系统设置中允许麦克风和语音识别权限。")
@@ -492,6 +639,7 @@ private extension ChatInputBarViewController {
             recognitionBaseText = input.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
             startRecognition()
         }
+#endif
     }
 
     func startRecognition() {
@@ -546,6 +694,15 @@ private extension ChatInputBarViewController {
 
 extension ChatInputBarViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
+        if let draft = templateDraftText,
+           !draft.isEmpty,
+           textView.text != draft {
+            templateDraftText = nil
+            if selectedTemplateId != nil {
+                selectedTemplateId = nil
+                reloadTemplateRow()
+            }
+        }
         input.inputText = textView.text
     }
 }
@@ -555,13 +712,15 @@ extension ChatInputBarViewController: PHPickerViewControllerDelegate {
         picker.dismiss(animated: true)
         guard !results.isEmpty else { return }
 
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             for result in results {
+                if Task.isCancelled { break }
                 if input.remainingSelectionLimit <= 0 { break }
                 let provider = result.itemProvider
                 if let data = await loadImageData(provider: provider) {
-                    await MainActor.run {
-                        self.input.addSelectedImageData(data)
+                    await MainActor.run { [weak self] in
+                        self?.input.addSelectedImageData(data)
                     }
                 }
             }
@@ -617,7 +776,13 @@ extension ChatInputBarViewController: UICollectionViewDataSource, UICollectionVi
         ) as? ChatInputSelectedImageCell else {
             return UICollectionViewCell()
         }
-        let item = input.selectedImages[indexPath.item]
+
+        let selectedImages = input.selectedImages
+        guard indexPath.item < selectedImages.count else {
+            return cell
+        }
+
+        let item = selectedImages[indexPath.item]
         cell.configure(image: item.image) { [weak self] in
             self?.input.removeSelectedImage(id: item.id)
         }

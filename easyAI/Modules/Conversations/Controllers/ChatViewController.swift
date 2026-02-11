@@ -29,6 +29,17 @@ final class ChatViewController: UIViewController {
     )
     private let disposeBag = DisposeBag()
     private let backgroundGradient = CAGradientLayer()
+    private var lastLayoutHeights: (table: CGFloat, input: CGFloat)?
+    private lazy var dismissKeyboardTapGesture: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(didTapToDismissKeyboard))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
+    private let errorBanner = UIView()
+    private let errorBannerLabel = UILabel()
+    private var errorBannerHideTask: DispatchWorkItem?
+    private var errorBannerTopConstraint: Constraint?
 
     private lazy var historyButton = makeBarButton(
         systemName: "clock",
@@ -49,7 +60,7 @@ final class ChatViewController: UIViewController {
         let stack = UIStackView(arrangedSubviews: [ttsButton, settingsButton])
         stack.axis = .horizontal
         stack.alignment = .center
-        stack.spacing = 12
+        stack.spacing = 6
         return stack
     }()
 
@@ -70,6 +81,7 @@ final class ChatViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         bindViewModel()
+        setupKeyboardDismissTapGesture()
         loadModelsIfNeeded()
         observeThemeChanges()
     }
@@ -81,6 +93,19 @@ final class ChatViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         backgroundGradient.frame = view.bounds
+
+        let tableHeight = tableViewController.view.bounds.height
+        let inputHeight = inputBarController.view.bounds.height
+        defer { lastLayoutHeights = (tableHeight, inputHeight) }
+
+        guard tableHeight > 0, inputHeight > 0 else { return }
+        guard let last = lastLayoutHeights else { return }
+
+        let didTableHeightChange = abs(last.table - tableHeight) > 0.5
+        let didInputHeightChange = abs(last.input - inputHeight) > 0.5
+        if didTableHeightChange || didInputHeightChange {
+            tableViewController.keepBottomPinnedForLayoutChange(animated: false)
+        }
     }
     
     private func setupUI() {
@@ -106,6 +131,8 @@ final class ChatViewController: UIViewController {
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.keyboardLayoutGuide.snp.top)
         }
+
+        setupErrorBanner()
     }
 
     private func configureNavigationItems() {
@@ -140,8 +167,13 @@ final class ChatViewController: UIViewController {
         buttonAppearance.normal.titleTextAttributes = [
             .foregroundColor: AppTheme.textPrimary
         ]
+        buttonAppearance.normal.backgroundImage = nil
+        buttonAppearance.highlighted.backgroundImage = nil
+        buttonAppearance.disabled.backgroundImage = nil
+        buttonAppearance.focused.backgroundImage = nil
         appearance.buttonAppearance = buttonAppearance
         appearance.doneButtonAppearance = buttonAppearance
+        appearance.backButtonAppearance = buttonAppearance
 
         let navBar = navigationController?.navigationBar
         navBar?.standardAppearance = appearance
@@ -185,6 +217,33 @@ final class ChatViewController: UIViewController {
         tableViewController.onSelectText = { [weak self] message in
             self?.presentTextSelection(for: message)
         }
+        tableViewController.onWillBeginDragging = { [weak self] in
+            self?.view.endEditing(true)
+        }
+
+        output?.errorMessage
+            .observe(on: MainScheduler.instance)
+            .distinctUntilChanged { lhs, rhs in
+                lhs == rhs
+            }
+            .subscribe(onNext: { [weak self] message in
+                guard let self else { return }
+                let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let trimmed, !trimmed.isEmpty else {
+                    self.hideErrorBanner(animated: true)
+                    return
+                }
+                self.showErrorBanner(text: trimmed)
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func setupKeyboardDismissTapGesture() {
+        view.addGestureRecognizer(dismissKeyboardTapGesture)
+    }
+
+    @objc private func didTapToDismissKeyboard() {
+        view.endEditing(true)
     }
 
     @objc private func didTapBackgroundToDismissKeyboard() {
@@ -229,8 +288,111 @@ final class ChatViewController: UIViewController {
         let button = UIButton(type: .system)
         button.setImage(UIImage(systemName: systemName), for: .normal)
         button.tintColor = AppTheme.textPrimary
-        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        button.backgroundColor = .clear
+        button.configuration = .plain()
+        if #available(iOS 15.0, *) {
+            var configuration = button.configuration ?? UIButton.Configuration.plain()
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+            button.configuration = configuration
+        } else {
+            button.adjustsImageWhenHighlighted = false
+            button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        }
+        button.configurationUpdateHandler = { updateButton in
+            let isPressed = updateButton.state.contains(.highlighted) || updateButton.state.contains(.selected)
+            updateButton.alpha = isPressed ? 0.92 : 1.0
+        }
         button.addTarget(self, action: action, for: .touchUpInside)
         return button
+    }
+
+    private func setupErrorBanner() {
+        errorBanner.backgroundColor = UIColor.systemRed.withAlphaComponent(0.94)
+        errorBanner.layer.cornerRadius = 12
+        errorBanner.layer.masksToBounds = true
+        errorBanner.alpha = 0
+        errorBanner.transform = CGAffineTransform(translationX: 0, y: -8)
+        errorBanner.isUserInteractionEnabled = false
+
+        errorBannerLabel.font = UIFont.preferredFont(forTextStyle: .callout)
+        errorBannerLabel.textColor = .white
+        errorBannerLabel.numberOfLines = 2
+        errorBannerLabel.textAlignment = .left
+
+        view.addSubview(errorBanner)
+        errorBanner.addSubview(errorBannerLabel)
+
+        errorBanner.snp.makeConstraints { make in
+            errorBannerTopConstraint = make.top.equalTo(view.safeAreaLayoutGuide.snp.top).offset(8).constraint
+            make.centerX.equalToSuperview()
+            make.width.lessThanOrEqualToSuperview().inset(16)
+            make.leading.greaterThanOrEqualToSuperview().offset(16)
+            make.trailing.lessThanOrEqualToSuperview().inset(16)
+        }
+
+        errorBannerLabel.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
+        }
+    }
+
+    private func showErrorBanner(text: String) {
+        errorBannerHideTask?.cancel()
+        errorBannerLabel.text = text
+        errorBannerTopConstraint?.update(offset: 8)
+
+        UIView.animate(withDuration: 0.2) {
+            self.errorBanner.alpha = 1
+            self.errorBanner.transform = .identity
+        }
+
+        let hideTask = DispatchWorkItem { [weak self] in
+            self?.hideErrorBanner(animated: true)
+        }
+        errorBannerHideTask = hideTask
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8, execute: hideTask)
+    }
+
+    private func hideErrorBanner(animated: Bool) {
+        errorBannerHideTask?.cancel()
+        errorBannerHideTask = nil
+
+        let animations = {
+            self.errorBanner.alpha = 0
+            self.errorBanner.transform = CGAffineTransform(translationX: 0, y: -8)
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.18, animations: animations)
+        } else {
+            animations()
+        }
+    }
+}
+
+extension ChatViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === dismissKeyboardTapGesture else { return true }
+
+        guard let touchedView = touch.view else { return true }
+
+        if touchedView is UIControl { return false }
+
+        if touchedView.isDescendant(of: inputBarController.view) { return false }
+
+        if let identifier = touchedView.accessibilityIdentifier,
+           identifier == "ChatInput.TemplateScrollView" {
+            return false
+        }
+
+        var currentView: UIView? = touchedView
+        while let view = currentView {
+            if view is UIScrollView,
+               view.accessibilityIdentifier == "ChatInput.TemplateScrollView" {
+                return false
+            }
+            currentView = view.superview
+        }
+
+        return true
     }
 }

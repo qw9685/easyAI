@@ -29,7 +29,16 @@ final class ModelCacheRepository {
                 where: ModelCacheRecord.Properties.id == cacheId
             )
             guard let record else { return nil }
-            let models = (try? JSONDecoder().decode([OpenRouterModelInfo].self, from: record.payload)) ?? []
+
+            let models: [OpenRouterModelInfo]
+            do {
+                models = try JSONDecoder().decode([OpenRouterModelInfo].self, from: record.payload)
+            } catch {
+                print("[ModelCacheRepository] ⚠️ Cache payload decode failed: \(error)")
+                clearCache()
+                return nil
+            }
+
             return (models: models, updatedAt: record.updatedAt)
         } catch {
             print("[ModelCacheRepository] ⚠️ Failed to read cache: \(error)")

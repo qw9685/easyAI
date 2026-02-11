@@ -13,6 +13,7 @@ import Foundation
 final class ChatMessagePersistence {
     private let conversationRepository: ConversationRepository
     private let messageRepository: MessageRepository
+    private let persistenceQueue = DispatchQueue(label: "easyai.chat.persistence", qos: .userInitiated)
 
     init(
         conversationRepository: ConversationRepository,
@@ -23,26 +24,36 @@ final class ChatMessagePersistence {
     }
 
     func persistNewMessage(_ message: Message, conversationId: String) async throws -> String? {
-        try messageRepository.insertMessage(message, conversationId: conversationId)
+        try await runDatabaseTask {
+            try self.messageRepository.insertMessage(message, conversationId: conversationId)
 
-        if message.role == .user,
-           let newTitle = try? makeTitleIfNeeded(conversationId: conversationId, content: message.content) {
-            try conversationRepository.renameConversation(id: conversationId, title: newTitle)
-            return newTitle
+            if message.role == .user,
+               let newTitle = try? self.makeTitleIfNeeded(conversationId: conversationId, content: message.content) {
+                do {
+                    try self.conversationRepository.renameConversation(id: conversationId, title: newTitle)
+                    return newTitle
+                } catch {
+                    print("[ChatMessagePersistence] ⚠️ Failed to rename conversation title: \(error)")
+                }
+            }
+
+            try self.conversationRepository.touch(id: conversationId)
+            return nil
         }
-
-        try conversationRepository.touch(id: conversationId)
-        return nil
     }
 
     func updateMessage(_ message: Message, conversationId: String) async throws {
-        try messageRepository.updateMessage(message, conversationId: conversationId)
-        try conversationRepository.touch(id: conversationId)
+        try await runDatabaseTask {
+            try self.messageRepository.updateMessage(message, conversationId: conversationId)
+            try self.conversationRepository.touch(id: conversationId)
+        }
     }
 
     func resetAll() async throws {
-        try messageRepository.deleteAll()
-        try conversationRepository.deleteAll()
+        try await runDatabaseTask {
+            try self.messageRepository.deleteAll()
+            try self.conversationRepository.deleteAll()
+        }
     }
 
     private func makeTitleIfNeeded(conversationId: String, content: String) throws -> String? {
@@ -61,5 +72,16 @@ final class ChatMessagePersistence {
         let prefix = firstLine.prefix(maxLength - 3)
         return "\(prefix)..."
     }
-}
 
+    private func runDatabaseTask<T>(_ work: @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            persistenceQueue.async {
+                do {
+                    continuation.resume(returning: try work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+}

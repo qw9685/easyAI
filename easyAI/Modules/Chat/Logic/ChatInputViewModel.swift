@@ -40,7 +40,8 @@ final class ChatInputViewModel {
         if isChatLoading {
             return false
         }
-        let textIsEmpty = inputTextRelay.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let normalizedText = sanitizeOutgoingText(inputTextRelay.value)
+        let textIsEmpty = normalizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let noImage = selectedImagesRelay.value.isEmpty
         let hasNoContent = textIsEmpty && noImage
         return hasNoContent
@@ -90,8 +91,17 @@ final class ChatInputViewModel {
             return
         }
 
-        let message = inputTextRelay.value
+        let message = sanitizeOutgoingText(inputTextRelay.value)
         let mediaContents = selectedImagesRelay.value.map { $0.media }
+
+        let textIsEmpty = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if textIsEmpty && mediaContents.isEmpty {
+            return
+        }
+
+        guard chatViewModel.canStartSendMessage(content: message, mediaContents: mediaContents) else {
+            return
+        }
 
         clearAll()
 
@@ -149,9 +159,53 @@ final class ChatInputViewModel {
         }
 
         if header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
-            return "image/webp"
+            if header.count >= 12,
+               let webpMark = String(data: header[8..<12], encoding: .ascii)?.uppercased(),
+               webpMark == "WEBP" {
+                return "image/webp"
+            }
+            return "image/jpeg"
+        }
+
+        if header.count >= 12,
+           header[4] == 0x66,
+           header[5] == 0x74,
+           header[6] == 0x79,
+           header[7] == 0x70,
+           let brand = String(data: header[8..<12], encoding: .ascii)?.lowercased(),
+           ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(brand) {
+            return "image/heic"
         }
 
         return "image/jpeg"
+    }
+
+    private func sanitizeOutgoingText(_ raw: String) -> String {
+        var text = raw.replacingOccurrences(of: "\r\n", with: "\n")
+
+        let placeholderMarkers: Set<String> = [
+            "原文：", "内容：", "主题：", "会议内容：", "报错/上下文：", "目标：", "代码：", "输入："
+        ]
+
+        var lines = text.components(separatedBy: "\n")
+        while let last = lines.last, last.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.removeLast()
+        }
+
+        if let last = lines.last,
+           placeholderMarkers.contains(last.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            lines.removeLast()
+            while let trailing = lines.last, trailing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                lines.removeLast()
+            }
+        }
+
+        text = lines.joined(separator: "\n")
+
+        while text.contains("\n\n\n") {
+            text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

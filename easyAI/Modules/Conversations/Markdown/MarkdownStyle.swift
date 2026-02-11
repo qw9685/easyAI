@@ -57,10 +57,10 @@ struct MarkdownStyle {
             codeBlockBackgroundColor: AppTheme.surfaceAlt,
             codeBlockBorderColor: AppTheme.border,
             codeBlockBorderWidth: AppTheme.borderWidth / UIScreen.main.scale,
-            codeBlockCornerRadius: 12,
+            codeBlockCornerRadius: 10,
             codeBlockHeaderBackgroundColor: AppTheme.surface,
             codeBlockHeaderSeparatorColor: AppTheme.border,
-            codeBlockHeaderFont: UIFont.preferredFont(forTextStyle: .caption2).withTraits(.traitBold),
+            codeBlockHeaderFont: UIFont.systemFont(ofSize: 11, weight: .semibold),
             codeBlockHeaderTextColor: AppTheme.textSecondary,
             codeBlockVerticalSpacing: 10
         )

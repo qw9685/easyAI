@@ -321,7 +321,10 @@ struct MarkdownParser: MarkdownParsing {
             return
         }
 
-        if let link = markup as? Link, let destination = link.destination, let url = URL(string: destination) {
+        if let link = markup as? Link,
+           let destination = link.destination,
+           let url = URL(string: destination),
+           isSupportedLinkURL(url) {
             var attrs = attributes
             attrs[.link] = url
             attrs[.foregroundColor] = style.linkColor
@@ -350,7 +353,7 @@ struct MarkdownParser: MarkdownParsing {
         let style = NSMutableParagraphStyle()
         style.paragraphSpacing = 0
         style.paragraphSpacingBefore = 0
-        style.lineBreakMode = .byCharWrapping
+        style.lineBreakMode = .byClipping
         return style
     }
 
@@ -358,9 +361,9 @@ struct MarkdownParser: MarkdownParsing {
         let style = NSMutableParagraphStyle()
         style.paragraphSpacing = 0
         style.paragraphSpacingBefore = 0
-        style.lineBreakMode = .byWordWrapping
-        style.lineHeightMultiple = 1.24
-        style.paragraphSpacing = 3
+        style.lineBreakMode = .byCharWrapping
+        style.lineHeightMultiple = 1.1
+        style.lineSpacing = 0
         return style
     }
 
@@ -407,11 +410,19 @@ struct MarkdownParser: MarkdownParsing {
 }
 
 private extension MarkdownParser {
+    func isSupportedLinkURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
     func extractImageBlock(from paragraph: Paragraph) -> (url: URL, altText: String?)? {
         guard paragraph.childCount == 1, let child = paragraph.child(at: 0) else { return nil }
         guard let image = child as? Image else { return nil }
         guard let source = image.source, let url = URL(string: source) else { return nil }
-        let alt = (image as? PlainTextConvertibleMarkup)?.plainText
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        let alt = image.plainText
         return (url: url, altText: alt)
     }
 

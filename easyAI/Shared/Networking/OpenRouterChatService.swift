@@ -23,25 +23,28 @@ final class OpenRouterChatService: ChatServiceProtocol {
     private init() {}
 
     // MARK: - Non-streaming
-    func sendMessage(messages: [Message], model: String) async throws -> String {
+    func sendMessage(messages: [Message], model: String, fallbackModelIDs: [String] = []) async throws -> ChatServiceResponse {
         if AppConfig.enableStream {
             var fullContent = ""
-            for try await chunk in sendMessageStream(messages: messages, model: model) {
+            for try await chunk in sendMessageStream(messages: messages, model: model, fallbackModelIDs: fallbackModelIDs) {
                 fullContent += chunk
             }
-            return fullContent
+            return ChatServiceResponse(content: fullContent, usage: nil)
         }
 
         if AppConfig.useMockData {
             print("[OpenRouterChatService] MOCK request → model=\(model), messages=\(messages.count)")
-            return try await mock.response(messages: messages, model: model)
+            let content = try await mock.response(messages: messages, model: model)
+            return ChatServiceResponse(content: content, usage: nil)
         }
 
-        let request = try requestBuilder.makeChatRequest(messages: messages, model: model, stream: false)
+        let request = try requestBuilder.makeChatRequest(messages: messages, model: model, fallbackModelIDs: fallbackModelIDs, stream: false)
         let (data, response) = try await URLSession.shared.data(for: request)
         let httpResponse = try validator.validate(response: response, data: data, model: model)
 
-        print("[OpenRouterChatService] ◀️ Response status =", httpResponse.statusCode)
+        if AppConfig.enablephaseLogs {
+            print("[OpenRouterChatService] ◀️ Response status =", httpResponse.statusCode)
+        }
 
         let decoder = JSONDecoder()
         let responseData = try decoder.decode(OpenRouterChatResponse.self, from: data)
@@ -49,11 +52,19 @@ final class OpenRouterChatService: ChatServiceProtocol {
             throw OpenRouterError.invalidResponse
         }
 
-        return content
+        let usage = responseData.usage.map {
+            ChatTokenUsage(
+                promptTokens: $0.promptTokens,
+                completionTokens: $0.completionTokens,
+                totalTokens: $0.totalTokens
+            )
+        }
+
+        return ChatServiceResponse(content: content, usage: usage)
     }
 
     // MARK: - Streaming (SSE)
-    func sendMessageStream(messages: [Message], model: String) -> AsyncThrowingStream<String, Error> {
+    func sendMessageStream(messages: [Message], model: String, fallbackModelIDs: [String] = []) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -69,7 +80,7 @@ final class OpenRouterChatService: ChatServiceProtocol {
                     }
 
                     try Task.checkCancellation()
-                    let request = try requestBuilder.makeChatRequest(messages: messages, model: model, stream: true)
+                    let request = try requestBuilder.makeChatRequest(messages: messages, model: model, fallbackModelIDs: fallbackModelIDs, stream: true)
                     let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
                     try Task.checkCancellation()
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -106,14 +117,20 @@ final class OpenRouterChatService: ChatServiceProtocol {
     func fetchModels() async throws -> [OpenRouterModelInfo] {
         let request = try requestBuilder.makeModelsRequest()
 
-        print("[OpenRouterChatService] 📋 Fetching models list...")
+        if AppConfig.enablephaseLogs {
+            print("[OpenRouterChatService] 📋 Fetching models list...")
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         let httpResponse = try validator.validate(response: response, data: data, model: nil)
-        print("[OpenRouterChatService] ◀️ Models response status =", httpResponse.statusCode)
+        if AppConfig.enablephaseLogs {
+            print("[OpenRouterChatService] ◀️ Models response status =", httpResponse.statusCode)
+        }
 
         let decoder = JSONDecoder()
         let modelsResponse = try decoder.decode(OpenRouterModelsResponse.self, from: data)
-        print("[OpenRouterChatService] ✅ Fetched \(modelsResponse.data.count) models")
+        if AppConfig.enablephaseLogs {
+            print("[OpenRouterChatService] ✅ Fetched \(modelsResponse.data.count) models")
+        }
         return modelsResponse.data
     }
 

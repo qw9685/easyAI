@@ -42,6 +42,7 @@ struct HistoryConversationsListView: View {
                         Button("关闭") {
                             dismiss()
                         }
+                        .buttonStyle(.plain)
                     }
                     ToolbarItem(placement: .principal) {
                         Text("会话")
@@ -54,6 +55,7 @@ struct HistoryConversationsListView: View {
                         } label: {
                             Image(systemName: "plus")
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -66,7 +68,17 @@ struct HistoryConversationsListView: View {
             searchBar
             List {
                 ForEach(filteredConversations, id: \.id) { conversation in
-                    Button {
+                    ConversationRow(
+                        conversation: conversation,
+                        searchMatch: searchResults[conversation.id],
+                        isSearching: isSearching
+                    )
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+                    .background(AppThemeSwift.surface)
+                    .cornerRadius(14)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
                         guard !viewModel.isSwitchingConversation else { return }
                         Task {
                             await viewModel.selectConversationAfterLoaded(id: conversation.id)
@@ -75,19 +87,8 @@ struct HistoryConversationsListView: View {
                             }
                             viewModel.emitEvent(.switchToChat)
                         }
-                    } label: {
-                        ConversationRow(
-                            conversation: conversation,
-                            searchMatch: searchResults[conversation.id],
-                            isSearching: isSearching
-                        )
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 12)
-                        .background(AppThemeSwift.surface)
-                        .cornerRadius(14)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.isSwitchingConversation)
+                    .allowsHitTesting(!viewModel.isSwitchingConversation)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
                             renameConversation = conversation
@@ -111,10 +112,11 @@ struct HistoryConversationsListView: View {
                     }
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)
-            .listRowSeparator(.hidden)
+            .listSectionSeparator(.hidden)
         }
         .overlay(emptyStateView)
         .scrollContentBackground(.hidden)
@@ -124,8 +126,19 @@ struct HistoryConversationsListView: View {
         .onAppear {
             viewModel.dispatch(.loadConversations)
         }
+        .onDisappear {
+            searchTask?.cancel()
+            searchTask = nil
+            isSearching = false
+        }
         .onChange(of: searchText) { newValue in
             scheduleSearch(newValue)
+        }
+        .onReceive(viewModel.$conversations) { _ in
+            let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                scheduleSearch(trimmed)
+            }
         }
         .alert("重命名", isPresented: $showRenameAlert) {
             TextField("标题", text: $renameTitle)
@@ -211,29 +224,38 @@ struct HistoryConversationsListView: View {
         }
         isSearching = true
         searchTask = Task {
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 250_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             await performSearch(query: trimmed)
         }
     }
 
     private func performSearch(query: String) async {
-        let lowerQuery = query.lowercased()
+        guard !Task.isCancelled else { return }
         var results: [String: ConversationSearchMatch] = [:]
 
         let conversations = await MainActor.run { viewModel.conversations }
         for conversation in conversations {
-            let titleRanges = findRanges(in: conversation.title, query: lowerQuery)
+            let titleRanges = findRanges(in: conversation.title, query: query)
             var snippet: String?
             var snippetRanges: [Range<String.Index>] = []
 
-            if let messages = try? MessageRepository.shared.fetchMessages(conversationId: conversation.id, limit: 200) {
-                for message in messages {
-                    let ranges = findRanges(in: message.content, query: lowerQuery)
-                    if let first = ranges.first {
-                        let snippetResult = makeSnippet(text: message.content, matchRange: first)
-                        snippet = snippetResult.snippet
-                        snippetRanges = snippetResult.ranges
-                        break
+            if titleRanges.isEmpty {
+                let conversationId = conversation.id
+                let messages = await fetchRecentMessagesInBackground(conversationId: conversationId, limit: 200)
+                if let messages {
+                    for message in messages {
+                        let ranges = findRanges(in: message.content, query: query)
+                        if let first = ranges.first {
+                            let snippetResult = makeSnippet(text: message.content, matchRange: first)
+                            snippet = snippetResult.snippet
+                            snippetRanges = snippetResult.ranges
+                            break
+                        }
                     }
                 }
             }
@@ -245,8 +267,13 @@ struct HistoryConversationsListView: View {
                     snippetRanges: snippetRanges
                 )
             }
+
+            if Task.isCancelled {
+                return
+            }
         }
 
+        guard !Task.isCancelled else { return }
         await MainActor.run {
             searchResults = results
         }
@@ -254,17 +281,17 @@ struct HistoryConversationsListView: View {
 
     private func findRanges(in text: String, query: String) -> [Range<String.Index>] {
         guard !query.isEmpty else { return [] }
-        let lowerText = text.lowercased()
         var ranges: [Range<String.Index>] = []
-        var start = lowerText.startIndex
-        while start < lowerText.endIndex,
-              let range = lowerText.range(of: query, range: start..<lowerText.endIndex) {
-            let startOffset = lowerText.distance(from: lowerText.startIndex, to: range.lowerBound)
-            let endOffset = lowerText.distance(from: lowerText.startIndex, to: range.upperBound)
-            let originalStart = text.index(text.startIndex, offsetBy: startOffset)
-            let originalEnd = text.index(text.startIndex, offsetBy: endOffset)
-            ranges.append(originalStart..<originalEnd)
-            start = range.upperBound
+        var searchStart = text.startIndex
+        while searchStart < text.endIndex,
+              let range = text.range(
+                of: query,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                range: searchStart..<text.endIndex,
+                locale: .current
+              ) {
+            ranges.append(range)
+            searchStart = range.upperBound
         }
         return ranges
     }
@@ -292,6 +319,18 @@ struct HistoryConversationsListView: View {
         searchText = ""
         searchResults = [:]
         isSearching = false
+    }
+
+    private func fetchRecentMessagesInBackground(conversationId: String, limit: Int) async -> [Message]? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let messages = try? MessageRepository.shared.fetchRecentMessages(
+                    conversationId: conversationId,
+                    limit: limit
+                )
+                continuation.resume(returning: messages)
+            }
+        }
     }
 }
 

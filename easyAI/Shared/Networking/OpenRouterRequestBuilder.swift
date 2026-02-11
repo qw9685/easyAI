@@ -10,7 +10,7 @@
 import Foundation
 
 struct OpenRouterRequestBuilder {
-    func makeChatRequest(messages: [Message], model: String, stream: Bool) throws -> URLRequest {
+    func makeChatRequest(messages: [Message], model: String, fallbackModelIDs: [String], stream: Bool) throws -> URLRequest {
         let runtime = OpenRouterRuntimeConfig.current()
         let apiKey = runtime.apiKey
         guard !apiKey.isEmpty && apiKey != "YOUR_OPENAI_API_KEY_HERE" else {
@@ -26,6 +26,12 @@ struct OpenRouterRequestBuilder {
             "messages": MessageConverter.toOpenRouterFormat(messages),
             "max_tokens": maxTokens
         ]
+
+        let fallbackChain = fallbackModelIDs
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !fallbackChain.isEmpty {
+            requestBody["models"] = [model] + fallbackChain
+        }
         if stream {
             requestBody["stream"] = true
         }
@@ -43,30 +49,39 @@ struct OpenRouterRequestBuilder {
         request.setValue(OpenRouterConfig.appTitle, forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        print("[OpenRouterChatService] ▶️ Sending request")
-        print("  • URL      :", OpenRouterConfig.chatURL)
-        print("  • Model    :", model)
-        print("  • Messages :", messages.count)
-
-        if let jsonData = request.httpBody,
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            let preview = String(jsonString.prefix(1000))
-            print("  • Request body preview:", preview)
-            if jsonString.count > 1000 {
-                print("  • ... (truncated, total \(jsonString.count) chars)")
+        if AppConfig.enablephaseLogs {
+            print("[OpenRouterChatService] ▶️ Sending request")
+            print("  • URL      :", OpenRouterConfig.chatURL)
+            print("  • Model    :", model)
+            if !fallbackChain.isEmpty {
+                print("  • Fallback :", fallbackChain.joined(separator: " -> "))
             }
-        }
+            print("  • Messages :", messages.count)
 
-        if messages.contains(where: { $0.hasMedia }) {
-            let mediaCount = messages.filter { $0.hasMedia }.count
-            print("  • Media    :", mediaCount, "message(s) with media")
-            for message in messages where message.hasMedia {
-                let debugInfo = MessageConverter.getDebugInfo(message)
-                print("  • Message[\(message.id.uuidString.prefix(8))]: \(debugInfo)")
+            if let jsonData = request.httpBody {
+                let previewData = jsonData.prefix(1000)
+                let preview = String(data: previewData, encoding: .utf8) ?? "<non-utf8 payload preview>"
+                print("  • Request body preview:", preview)
+                if jsonData.count > 1000 {
+                    print("  • ... (truncated, total \(jsonData.count) bytes)")
+                }
+            }
+
+            if messages.contains(where: { $0.hasMedia }) {
+                let mediaCount = messages.filter { $0.hasMedia }.count
+                print("  • Media    :", mediaCount, "message(s) with media")
+                for message in messages where message.hasMedia {
+                    let debugInfo = MessageConverter.getDebugInfo(message)
+                    print("  • Message[\(message.id.uuidString.prefix(8))]: \(debugInfo)")
+                }
             }
         }
 
         return request
+    }
+
+    func makeChatRequest(messages: [Message], model: String, stream: Bool) throws -> URLRequest {
+        try makeChatRequest(messages: messages, model: model, fallbackModelIDs: [], stream: stream)
     }
 
     func makeModelsRequest() throws -> URLRequest {

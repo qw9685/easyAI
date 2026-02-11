@@ -38,7 +38,7 @@ final class ChatMessageSendCell: ChatBaseBubbleCell {
         configureBase(message: message, showTimestamp: true)
         setBubbleHidden(trimmed.isEmpty)
         messageLabel.textColor = .white
-        messageLabel.textAlignment = .right
+        messageLabel.textAlignment = .natural
         messageLabel.text = message.content
         messageLabel.isHidden = trimmed.isEmpty
     }
@@ -48,7 +48,10 @@ final class ChatMessageSendCell: ChatBaseBubbleCell {
         contentStack.spacing = 8
         
         messageLabel.numberOfLines = 0
-        messageLabel.lineBreakMode = .byCharWrapping
+        messageLabel.lineBreakMode = .byWordWrapping
+        if #available(iOS 14.0, *) {
+            messageLabel.lineBreakStrategy = .standard
+        }
         messageLabel.font = UIFont.preferredFont(forTextStyle: .body)
         messageLabel.setContentCompressionResistancePriority(.required, for: .vertical)
         messageLabel.setContentHuggingPriority(.required, for: .horizontal)

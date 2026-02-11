@@ -42,6 +42,11 @@ final class ModelRepository: ModelRepositoryProtocol {
 
         do {
             let models = try await service.fetchModels()
+            if models.isEmpty, let cached = cacheRepository.readCache() {
+                let filtered = applyFilter(cached.models, filter: filter)
+                return filtered.map { mapToAIModel($0) }
+            }
+
             if !models.isEmpty {
                 cacheRepository.writeCache(models: models)
             }
@@ -63,18 +68,30 @@ final class ModelRepository: ModelRepositoryProtocol {
             return models
         case .freeOnly:
             return models.filter { model in
-                guard let pricing = model.pricing else { return true }
-                let promptPrice = Double(pricing.prompt ?? "0") ?? 0
-                let completionPrice = Double(pricing.completion ?? "0") ?? 0
+                guard let pricing = model.pricing else { return false }
+                guard let promptPrice = parsePrice(pricing.prompt),
+                      let completionPrice = parsePrice(pricing.completion) else {
+                    return false
+                }
                 return promptPrice == 0 && completionPrice == 0
             }
         }
     }
 
+    private func parsePrice(_ raw: String?) -> Double? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let normalized = raw
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: ",", with: "")
+        return Double(normalized)
+    }
+
     private func mapToAIModel(_ modelInfo: OpenRouterModelInfo) -> AIModel {
         let inputModalities = modelInfo.architecture?.inputModalities ?? []
         let outputModalities = modelInfo.architecture?.outputModalities ?? []
-        let supportsMultimodal = inputModalities.contains("image")
+        let supportsMultimodal = inputModalities.contains { $0.lowercased() == "image" }
 
         return AIModel(
             id: "openrouter-\(modelInfo.id.replacingOccurrences(of: "/", with: "-"))",

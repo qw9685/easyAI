@@ -140,9 +140,22 @@ extension MediaContent {
         }
         if header.count >= 4 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
             // 可能是 WebP 或 RIFF 格式，需要进一步检查
-            if data.count > 8 && String(data: data[4..<8], encoding: .ascii) == "WEBP" {
+            if header.count >= 12,
+               let webpMark = String(data: header[8..<12], encoding: .ascii)?.uppercased(),
+               webpMark == "WEBP" {
                 return "image/webp"
             }
+        }
+
+        // HEIC / HEIF（ISO BMFF）
+        if header.count >= 12,
+           header[4] == 0x66,
+           header[5] == 0x74,
+           header[6] == 0x79,
+           header[7] == 0x70,
+           let brand = String(data: header[8..<12], encoding: .ascii)?.lowercased(),
+           ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(brand) {
+            return "image/heic"
         }
         
         // PDF
@@ -184,13 +197,24 @@ extension MediaContent {
             return "image/gif"
         }
         if header.count >= 4 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
-            if data.count > 8 && String(data: data[4..<8], encoding: .ascii) == "WEBP" {
+            if header.count >= 12,
+               let webpMark = String(data: header[8..<12], encoding: .ascii)?.uppercased(),
+               webpMark == "WEBP" {
                 return "image/webp"
             }
+        }
+
+        if header.count >= 12,
+           header[4] == 0x66,
+           header[5] == 0x74,
+           header[6] == 0x79,
+           header[7] == 0x70,
+           let brand = String(data: header[8..<12], encoding: .ascii)?.lowercased(),
+           ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(brand) {
+            return "image/heic"
         }
         
         return "image/jpeg" // 默认
     }
 }
-
 

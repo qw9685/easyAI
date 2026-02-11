@@ -10,6 +10,7 @@
 
 import UIKit
 import SnapKit
+import QuartzCore
 
 final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
     static let reuseIdentifier = "ChatMessageMarkdownCell"
@@ -18,8 +19,9 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
     private let parser: MarkdownParsing = MarkdownParser()
     private let style = MarkdownStyle.default()
     private let stackRenderer = MarkdownBlocksStackRenderer()
-    private var lastRenderedSignature: (length: Int, hash: Int)?
+    private var lastRenderedText: String?
     private var fullWidthConstraint: Constraint?
+    private var renderSampleCount: Int = 0
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -33,7 +35,7 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        lastRenderedSignature = nil
+        lastRenderedText = nil
         blocksStack.arrangedSubviews.forEach { view in
             blocksStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -74,7 +76,7 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
     private func applyMarkdownText(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            lastRenderedSignature = nil
+            lastRenderedText = nil
             blocksStack.arrangedSubviews.forEach { view in
                 blocksStack.removeArrangedSubview(view)
                 view.removeFromSuperview()
@@ -82,19 +84,35 @@ final class ChatMessageMarkdownCell: ChatBaseBubbleCell {
             return
         }
 
-        let signature = (length: text.count, hash: text.hashValue)
-        if lastRenderedSignature?.length == signature.length, lastRenderedSignature?.hash == signature.hash { return }
-        lastRenderedSignature = signature
+        if lastRenderedText == text { return }
+        lastRenderedText = text
 
+        let parseStart = CACurrentMediaTime()
         let blocks = parser.parse(text, style: style)
+        let parseMs = (CACurrentMediaTime() - parseStart) * 1000
+
+        let renderStart = CACurrentMediaTime()
         stackRenderer.render(
             blocks: blocks,
             in: blocksStack,
             style: style,
             onOpenURL: { url in
-                guard url.scheme != nil else { return }
+                guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+                    return
+                }
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
             }
         )
+        let renderMs = (CACurrentMediaTime() - renderStart) * 1000
+
+        if AppConfig.enablephaseLogs {
+            renderSampleCount += 1
+            let totalMs = parseMs + renderMs
+            if totalMs >= 10 || renderSampleCount == 1 || renderSampleCount % 40 == 0 {
+                print(
+                    "[ConversationPerf][markdown] len=\(text.count) | blocks=\(blocks.count) | parseMs=\(String(format: "%.2f", parseMs)) | renderMs=\(String(format: "%.2f", renderMs))"
+                )
+            }
+        }
     }
 }

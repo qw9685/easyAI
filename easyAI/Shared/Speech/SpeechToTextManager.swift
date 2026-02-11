@@ -26,10 +26,11 @@ final class SpeechToTextManager: NSObject {
     func requestPermissions() async -> Bool {
 #if targetEnvironment(simulator)
         return false
-#endif
+#else
         let speechAllowed = await requestSpeechAuthorization()
         let micAllowed = await requestMicAuthorization()
         return speechAllowed && micAllowed
+#endif
     }
 
     func startRecognition(
@@ -42,8 +43,7 @@ final class SpeechToTextManager: NSObject {
 #if targetEnvironment(simulator)
         onError("模拟器不支持录音，请在真机测试语音输入。")
         return
-#endif
-
+#else
         guard let recognizer, recognizer.isAvailable else {
             onError("语音识别不可用")
             return
@@ -55,7 +55,7 @@ final class SpeechToTextManager: NSObject {
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
+            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             onError("无法启动录音")
@@ -64,7 +64,8 @@ final class SpeechToTextManager: NSObject {
 
         guard audioSession.isInputAvailable else {
             onError("当前设备麦克风不可用")
-            stopRecognition()
+            recognitionRequest = nil
+            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
             return
         }
 
@@ -79,6 +80,9 @@ final class SpeechToTextManager: NSObject {
         do {
             try audioEngine.start()
         } catch {
+            inputNode.removeTap(onBus: 0)
+            recognitionRequest = nil
+            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
             onError("无法开始录音")
             return
         }
@@ -86,20 +90,28 @@ final class SpeechToTextManager: NSObject {
         isRecognizing = true
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             if let result {
-                onUpdate(result.bestTranscription.formattedString, result.isFinal)
+                let transcript = result.bestTranscription.formattedString
+                let isFinal = result.isFinal
+                DispatchQueue.main.async {
+                    onUpdate(transcript, isFinal)
+                }
             }
             if let error {
-                self?.stopRecognition()
-                onError(error.localizedDescription)
+                DispatchQueue.main.async {
+                    self?.stopRecognition()
+                    onError(error.localizedDescription)
+                }
             }
         }
+#endif
     }
 
     func stopRecognition() {
-        guard isRecognizing else { return }
         isRecognizing = false
 
-        audioEngine.stop()
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()

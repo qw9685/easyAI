@@ -82,6 +82,7 @@ struct TextToSpeechSettingsView: View {
                     Button("完成") {
                         dismiss()
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }

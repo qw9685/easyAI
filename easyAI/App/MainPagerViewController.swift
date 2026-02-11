@@ -23,10 +23,22 @@ final class MainPagerViewController: UIViewController {
     private var pageAnimator: UIViewPropertyAnimator?
     private var lastScrollSize: CGSize = .zero
     private let disposeBag = DisposeBag()
+    private var interactiveSourceIndex: Int?
+    private var interactiveTargetIndex: Int?
+    private lazy var leftEdgePanGesture: UIScreenEdgePanGestureRecognizer = {
+        let gesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleLeftEdgePan(_:)))
+        gesture.edges = .left
+        return gesture
+    }()
+    private lazy var rightEdgePanGesture: UIScreenEdgePanGestureRecognizer = {
+        let gesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleRightEdgePan(_:)))
+        gesture.edges = .right
+        return gesture
+    }()
 
-    private lazy var historyBackButton = makeBarButton(
-        systemName: "bubble.left",
-        action: #selector(handleBackToChat)
+    private lazy var historyNewButton = makeBarButton(
+        systemName: "square.and.pencil",
+        action: #selector(handleStartNewConversation)
     )
     private lazy var settingsBackButton = makeBarButton(
         systemName: "bubble.left",
@@ -67,9 +79,9 @@ final class MainPagerViewController: UIViewController {
             .environmentObject(swiftUIAdapter)
             .environmentObject(ThemeManager.shared)
         let historyVC = UIHostingController(rootView: historyView)
-        historyVC.navigationItem.titleView = makeTitleLabel("会话")
+        historyVC.navigationItem.titleView = makeTitleLabel("历史")
         historyVC.navigationItem.largeTitleDisplayMode = .never
-        historyVC.navigationItem.rightBarButtonItem = UIBarButtonItem(customView: historyBackButton)
+        historyVC.navigationItem.rightBarButtonItem = UIBarButtonItem(customView: historyNewButton)
 
         let settingsView = SettingsView(isEmbeddedInPager: true)
             .environmentObject(swiftUIAdapter)
@@ -101,13 +113,16 @@ final class MainPagerViewController: UIViewController {
         view.backgroundColor = AppTheme.canvas
 
         scrollView.isPagingEnabled = true
-        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceHorizontal = false
         scrollView.alwaysBounceVertical = false
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.isDirectionalLockEnabled = true
         scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.isScrollEnabled = false
         scrollView.delegate = self
+        view.addGestureRecognizer(leftEdgePanGesture)
+        view.addGestureRecognizer(rightEdgePanGesture)
 
         contentStack.axis = .horizontal
         contentStack.alignment = .fill
@@ -161,7 +176,7 @@ final class MainPagerViewController: UIViewController {
             }
         }
         let tint = AppTheme.textPrimary
-        historyBackButton.tintColor = tint
+        historyNewButton.tintColor = tint
         settingsBackButton.tintColor = tint
     }
 
@@ -178,8 +193,13 @@ final class MainPagerViewController: UIViewController {
         buttonAppearance.normal.titleTextAttributes = [
             .foregroundColor: AppTheme.textPrimary
         ]
+        buttonAppearance.normal.backgroundImage = nil
+        buttonAppearance.highlighted.backgroundImage = nil
+        buttonAppearance.disabled.backgroundImage = nil
+        buttonAppearance.focused.backgroundImage = nil
         appearance.buttonAppearance = buttonAppearance
         appearance.doneButtonAppearance = buttonAppearance
+        appearance.backButtonAppearance = buttonAppearance
 
         let navBar = navigation.navigationBar
         navBar.standardAppearance = appearance
@@ -202,14 +222,26 @@ final class MainPagerViewController: UIViewController {
         let button = UIButton(type: .system)
         button.setImage(UIImage(systemName: systemName), for: .normal)
         button.tintColor = AppTheme.textPrimary
+        button.backgroundColor = .clear
+        button.configuration = .plain()
+        if #available(iOS 15.0, *) {
+            var configuration = button.configuration ?? UIButton.Configuration.plain()
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+            button.configuration = configuration
+        } else {
+            button.adjustsImageWhenHighlighted = false
+            button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        }
+        button.configurationUpdateHandler = { updateButton in
+            let isPressed = updateButton.state.contains(.highlighted) || updateButton.state.contains(.selected)
+            updateButton.alpha = isPressed ? 0.92 : 1.0
+        }
         button.addTarget(self, action: action, for: .touchUpInside)
-        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         return button
     }
 
     private func switchTo(index: Int) {
         guard index >= 0, index < controllers.count else { return }
-        guard index != currentIndex else { return }
         let width = scrollView.bounds.width
         guard width > 0 else {
             DispatchQueue.main.async { [weak self] in
@@ -218,18 +250,28 @@ final class MainPagerViewController: UIViewController {
             return
         }
         let targetOffset = CGPoint(x: width * CGFloat(index), y: 0)
+        if index == currentIndex {
+            let offsetDelta = abs(scrollView.contentOffset.x - targetOffset.x)
+            guard offsetDelta > 0.5 else { return }
+        }
+        debugPagerLog("switchTo request from=\(currentIndex) to=\(index)")
         pageAnimator?.stopAnimation(true)
         let animator = UIViewPropertyAnimator(duration: pageTransitionDuration, curve: .easeInOut) { [weak self] in
             self?.scrollView.contentOffset = targetOffset
         }
         animator.addCompletion { [weak self] _ in
             self?.syncIndexFromScroll()
+            self?.debugPagerLog("switchTo complete current=\(self?.currentIndex ?? -1)")
         }
         pageAnimator = animator
         animator.startAnimation()
     }
 
     @objc private func handleBackToChat() {
+        switchTo(index: 1)
+    }
+
+    @objc private func handleStartNewConversation() {
         viewModel.dispatch(.startNewConversation)
         switchTo(index: 1)
     }
@@ -240,7 +282,121 @@ final class MainPagerViewController: UIViewController {
         let rawIndex = Int(round(scrollView.contentOffset.x / width))
         let clamped = max(0, min(rawIndex, controllers.count - 1))
         guard clamped != currentIndex else { return }
+        debugPagerLog("syncIndex from=\(currentIndex) to=\(clamped)")
         currentIndex = clamped
+    }
+
+    private func beginInteractiveTransition(targetIndex: Int) {
+        guard targetIndex >= 0, targetIndex < controllers.count else {
+            interactiveSourceIndex = nil
+            interactiveTargetIndex = nil
+            return
+        }
+        pageAnimator?.stopAnimation(true)
+        interactiveSourceIndex = currentIndex
+        interactiveTargetIndex = targetIndex
+        debugPagerLog("interactive begin source=\(currentIndex) target=\(targetIndex)")
+    }
+
+    private func updateInteractiveTransition(progress: CGFloat) {
+        guard let sourceIndex = interactiveSourceIndex,
+              let targetIndex = interactiveTargetIndex else { return }
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let sourceX = width * CGFloat(sourceIndex)
+        let targetX = width * CGFloat(targetIndex)
+        let clampedProgress = min(max(progress, 0), 1)
+        let x = sourceX + (targetX - sourceX) * clampedProgress
+        scrollView.contentOffset = CGPoint(x: x, y: 0)
+    }
+
+    private func endInteractiveTransition(progress: CGFloat, velocity: CGFloat) {
+        guard let sourceIndex = interactiveSourceIndex,
+              let targetIndex = interactiveTargetIndex else { return }
+        let settleIndex = resolveSettleIndex(
+            sourceIndex: sourceIndex,
+            targetIndex: targetIndex,
+            progress: progress,
+            velocity: velocity
+        )
+        let shouldComplete = settleIndex == targetIndex
+        debugPagerLog(
+            "interactive end progress=\(String(format: "%.2f", progress)) velocity=\(Int(velocity)) settle=\(settleIndex) complete=\(shouldComplete)"
+        )
+
+        interactiveSourceIndex = nil
+        interactiveTargetIndex = nil
+
+        switchTo(index: settleIndex)
+    }
+
+    private func resolveSettleIndex(sourceIndex: Int, targetIndex: Int, progress: CGFloat, velocity: CGFloat) -> Int {
+        let velocityThreshold: CGFloat = 720
+
+        if abs(velocity) >= velocityThreshold {
+            if targetIndex > sourceIndex {
+                return velocity < 0 ? targetIndex : sourceIndex
+            }
+            return velocity > 0 ? targetIndex : sourceIndex
+        }
+
+        return progress >= 0.5 ? targetIndex : sourceIndex
+    }
+
+    private func cancelInteractiveTransition() {
+        guard let sourceIndex = interactiveSourceIndex else { return }
+        debugPagerLog("interactive cancel source=\(sourceIndex)")
+        interactiveSourceIndex = nil
+        interactiveTargetIndex = nil
+        switchTo(index: sourceIndex)
+    }
+
+    private func debugPagerLog(_ message: String) {
+#if DEBUG
+        print("[Pager] \(message)")
+#endif
+    }
+}
+
+private extension MainPagerViewController {
+    @objc func handleLeftEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        let translation = gesture.translation(in: view).x
+        let velocity = gesture.velocity(in: view).x
+        let width = max(scrollView.bounds.width, 1)
+        let progress = min(max(translation / width, 0), 1)
+
+        switch gesture.state {
+        case .began:
+            beginInteractiveTransition(targetIndex: currentIndex - 1)
+        case .changed:
+            updateInteractiveTransition(progress: progress)
+        case .ended:
+            endInteractiveTransition(progress: progress, velocity: velocity)
+        case .cancelled, .failed:
+            cancelInteractiveTransition()
+        default:
+            break
+        }
+    }
+
+    @objc func handleRightEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        let translation = gesture.translation(in: view).x
+        let velocity = gesture.velocity(in: view).x
+        let width = max(scrollView.bounds.width, 1)
+        let progress = min(max(-translation / width, 0), 1)
+
+        switch gesture.state {
+        case .began:
+            beginInteractiveTransition(targetIndex: currentIndex + 1)
+        case .changed:
+            updateInteractiveTransition(progress: progress)
+        case .ended:
+            endInteractiveTransition(progress: progress, velocity: velocity)
+        case .cancelled, .failed:
+            cancelInteractiveTransition()
+        default:
+            break
+        }
     }
 }
 

@@ -12,6 +12,58 @@
 import Foundation
 import UIKit
 
+struct MessageMetrics: Codable, Hashable {
+    let promptTokens: Int?
+    let completionTokens: Int?
+    let totalTokens: Int?
+    let latencyMs: Int?
+    let estimatedCostUSD: Double?
+    let isEstimated: Bool
+
+    init(
+        promptTokens: Int? = nil,
+        completionTokens: Int? = nil,
+        totalTokens: Int? = nil,
+        latencyMs: Int? = nil,
+        estimatedCostUSD: Double? = nil,
+        isEstimated: Bool = true
+    ) {
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalTokens = totalTokens
+        self.latencyMs = latencyMs
+        self.estimatedCostUSD = estimatedCostUSD
+        self.isEstimated = isEstimated
+    }
+}
+
+
+
+struct MessageRoutingMetadata: Codable, Hashable {
+    let fromModelId: String?
+    let toModelId: String
+    let reason: String
+    let mode: RoutingMode
+    let budgetMode: BudgetMode
+    let timestamp: Date
+
+    init(
+        fromModelId: String?,
+        toModelId: String,
+        reason: String,
+        mode: RoutingMode,
+        budgetMode: BudgetMode,
+        timestamp: Date = Date()
+    ) {
+        self.fromModelId = fromModelId
+        self.toModelId = toModelId
+        self.reason = reason
+        self.mode = mode
+        self.budgetMode = budgetMode
+        self.timestamp = timestamp
+    }
+}
+
 struct Message: Identifiable, Codable {
     let id: UUID
     /// 内容需要在打字机效果中逐步更新，因此使用 `var`
@@ -30,6 +82,12 @@ struct Message: Identifiable, Codable {
     let baseId: String?
     /// phase: 稳定的 itemId（推荐：<baseId>|k:<kind>|p:<part>）
     let itemId: String?
+    /// 回复指标（token/耗时/费用）
+    var metrics: MessageMetrics?
+    /// 运行态状态提示（如 fallback 路径），用于 UI 展示
+    var runtimeStatusText: String?
+    /// 路由元数据（智能路由命中信息）
+    var routingMetadata: MessageRoutingMetadata?
 
     init(
         id: UUID = UUID(),
@@ -41,7 +99,10 @@ struct Message: Identifiable, Codable {
         mediaContents: [MediaContent] = [],
         turnId: UUID? = nil,
         baseId: String? = nil,
-        itemId: String? = nil
+        itemId: String? = nil,
+        metrics: MessageMetrics? = nil,
+        runtimeStatusText: String? = nil,
+        routingMetadata: MessageRoutingMetadata? = nil
     ) {
         self.id = id
         self.content = content
@@ -53,6 +114,9 @@ struct Message: Identifiable, Codable {
         self.turnId = turnId
         self.baseId = baseId
         self.itemId = itemId
+        self.metrics = metrics
+        self.runtimeStatusText = runtimeStatusText
+        self.routingMetadata = routingMetadata
     }
 
     // MARK: - Convenience

@@ -26,7 +26,8 @@ struct ChatContextBuilder: ChatContextBuilding {
         strategy: MessageContextStrategy,
         maxContextMessages: Int
     ) -> [Message] {
-        let contextMessages = Array(allMessages.suffix(maxContextMessages))
+        let filteredMessages = filterContextMessages(allMessages)
+        let contextMessages = Array(filteredMessages.suffix(maxContextMessages))
 
         switch strategy {
         case .fullContext:
@@ -50,6 +51,21 @@ struct ChatContextBuilder: ChatContextBuilding {
         }
     }
 
+    private func filterContextMessages(_ messages: [Message]) -> [Message] {
+        messages.filter { message in
+            if message.isStreaming {
+                return false
+            }
+            if message.role == .assistant {
+                let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty && message.mediaContents.isEmpty {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
     private func sanitizeMessages(
         _ source: [Message],
         currentUserMessageId: UUID?,
@@ -69,4 +85,3 @@ struct ChatContextBuilder: ChatContextBuilding {
         }
     }
 }
-

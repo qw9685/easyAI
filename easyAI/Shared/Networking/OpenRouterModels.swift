@@ -28,12 +28,25 @@ struct OpenRouterStreamResponse: Codable {
 // MARK: - 响应模型（OpenRouter 对话）
 struct OpenRouterChatResponse: Codable {
     let choices: [Choice]
+    let usage: Usage?
 
     struct Choice: Codable {
         let message: MessageResponse
 
         struct MessageResponse: Codable {
             let content: String
+        }
+    }
+
+    struct Usage: Codable {
+        let promptTokens: Int?
+        let completionTokens: Int?
+        let totalTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case promptTokens = "prompt_tokens"
+            case completionTokens = "completion_tokens"
+            case totalTokens = "total_tokens"
         }
     }
 }

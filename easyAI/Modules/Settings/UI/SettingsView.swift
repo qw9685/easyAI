@@ -43,6 +43,7 @@ struct SettingsView: View {
                                     viewModel.dispatch(.loadModels(forceRefresh: false))
                                     dismiss()
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                 }
@@ -74,11 +75,14 @@ struct SettingsView: View {
                     HStack {
                         Text("打字机速度")
                         Spacer()
-                        Text(String(format: "%.1fx", configManager.typewriterSpeed))
+                        Text("\(String(format: "%.1fx", configManager.typewriterSpeed)) · \(AppConfig.typewriterSpeedTierName(for: configManager.typewriterSpeed))")
                             .foregroundColor(AppThemeSwift.textSecondary)
                     }
                     Slider(value: $configManager.typewriterSpeed, in: 0.1...8.0, step: 0.1)
                         .tint(AppThemeSwift.accent)
+                    Text(typewriterSpeedHint)
+                        .font(.caption)
+                        .foregroundColor(AppThemeSwift.textSecondary)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -93,6 +97,77 @@ struct SettingsView: View {
                 }
 
                 Toggle("启用 phase 日志（turnId/itemId）", isOn: $configManager.enablephaseLogs)
+
+                Toggle("启用自动降级（Fallback）", isOn: $configManager.fallbackEnabled)
+
+                HStack {
+                    Text("自动降级重试次数")
+                    Spacer()
+                    Text("\(configManager.fallbackMaxRetries)")
+                        .foregroundColor(AppThemeSwift.textSecondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(configManager.fallbackMaxRetries) },
+                        set: { configManager.fallbackMaxRetries = Int($0.rounded()) }
+                    ),
+                    in: 0...3,
+                    step: 1
+                )
+                .tint(AppThemeSwift.accent)
+                .disabled(!configManager.fallbackEnabled)
+
+                HStack {
+                    Text("原生 fallback 深度")
+                    Spacer()
+                    Text("\(configManager.nativeFallbackDepth)")
+                        .foregroundColor(AppThemeSwift.textSecondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(configManager.nativeFallbackDepth) },
+                        set: { configManager.nativeFallbackDepth = Int($0.rounded()) }
+                    ),
+                    in: 0...3,
+                    step: 1
+                )
+                .tint(AppThemeSwift.accent)
+                .disabled(!configManager.fallbackEnabled)
+
+                Picker("Fallback 预算策略", selection: $configManager.fallbackBudgetMode) {
+                    ForEach(FallbackBudgetMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!configManager.fallbackEnabled)
+
+                Toggle("限流错误重试", isOn: $configManager.fallbackRetryOnRateLimited)
+                    .disabled(!configManager.fallbackEnabled)
+
+                Toggle("超时错误重试", isOn: $configManager.fallbackRetryOnTimeout)
+                    .disabled(!configManager.fallbackEnabled)
+
+                Toggle("服务不可用重试", isOn: $configManager.fallbackRetryOnServerUnavailable)
+                    .disabled(!configManager.fallbackEnabled)
+
+                Toggle("网络错误重试", isOn: $configManager.fallbackRetryOnNetwork)
+                    .disabled(!configManager.fallbackEnabled)
+
+                Picker("路由模式", selection: $configManager.routingMode) {
+                    ForEach(RoutingMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker("路由预算偏好", selection: $configManager.budgetMode) {
+                    ForEach(BudgetMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(configManager.routingMode != .smart)
 
                 Picker("上下文策略", selection: $configManager.contextStrategy) {
                     ForEach(MessageContextStrategy.allCases) { strategy in
@@ -237,6 +312,13 @@ struct SettingsView: View {
     private var ttsSummary: String {
         let voiceName = TextToSpeechSettingsView.displayName(for: configManager.ttsVoiceIdentifier)
         return "\(voiceName) · 语速 \(String(format: "%.2f", configManager.ttsRate)) · 音高 \(String(format: "%.2f", configManager.ttsPitch))"
+    }
+
+    private var typewriterSpeedHint: String {
+        let speed = configManager.typewriterSpeed
+        let minChars = AppConfig.typewriterMinCharsPerTick(for: speed)
+        let maxChars = AppConfig.typewriterMaxCharsPerTick(for: speed)
+        return "当前速度档位每次刷新约显示 \(minChars)-\(maxChars) 个字符"
     }
 
 }

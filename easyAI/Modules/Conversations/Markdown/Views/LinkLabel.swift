@@ -82,6 +82,13 @@ final class LinkLabel: UILabel {
         setNeedsLayout()
     }
 
+    private func normalizedWebURL(from url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        return url
+    }
+
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         guard let storage = textStorage, storage.length > 0 else { return }
@@ -94,6 +101,7 @@ final class LinkLabel: UILabel {
 
         layoutManager.ensureLayout(for: textContainer)
         let glyphIndex = layoutManager.glyphIndex(for: locationInText, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return }
         let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
         guard glyphRect.contains(locationInText) else { return }
 
@@ -101,12 +109,15 @@ final class LinkLabel: UILabel {
         guard characterIndex < storage.length else { return }
 
         if let url = storage.attribute(.link, at: characterIndex, effectiveRange: nil) as? URL {
-            onOpenURL?(url)
+            if let safeURL = normalizedWebURL(from: url) {
+                onOpenURL?(safeURL)
+            }
             return
         }
         if let str = storage.attribute(.link, at: characterIndex, effectiveRange: nil) as? String,
-           let url = URL(string: str) {
-            onOpenURL?(url)
+           let url = URL(string: str),
+           let safeURL = normalizedWebURL(from: url) {
+            onOpenURL?(safeURL)
             return
         }
     }

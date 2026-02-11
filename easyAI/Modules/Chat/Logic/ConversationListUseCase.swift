@@ -36,12 +36,29 @@ final class ConversationListUseCase {
             }
             guard !Task.isCancelled else { return }
             do {
-                let records = try self.coordinator.fetchAllConversations()
+                let records = try await withCheckedThrowingContinuation { continuation in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        do {
+                            let records = try self.coordinator.fetchAllConversations()
+                            continuation.resume(returning: records)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     onLoaded(records)
                 }
             } catch {
-                onError?(error)
+                guard !Task.isCancelled else { return }
+                if let onError {
+                    await MainActor.run {
+                        guard !Task.isCancelled else { return }
+                        onError(error)
+                    }
+                }
             }
         }
     }

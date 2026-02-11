@@ -75,6 +75,9 @@ final class ChatViewModel {
     private var conversationId: UUID = UUID()
     private var currentTurnId: UUID?
     private var isBatchingSnapshot: Bool = false
+    private var pendingMessageContentUpdates: [UUID: String] = [:]
+    private var isMessageContentFlushScheduled: Bool = false
+    private var isResettingPersistence: Bool = false
     
     private let chatService: ChatServiceProtocol
     private let contextBuilder: ChatContextBuilding
@@ -87,6 +90,8 @@ final class ChatViewModel {
     private let logger: ChatLogger
     private let sendMessageUseCase: ChatSendMessageUseCase
     private var activeSendTask: Task<Void, Never>?
+    private var activeSendTaskToken: UUID?
+    private var latestSelectionRequestId: UUID?
     private var currentConversationId: String? {
         didSet { emitSnapshotIfNeeded() }
     }
@@ -186,10 +191,19 @@ final class ChatViewModel {
     
     
     // MARK: - Init
-    init(chatService: ChatServiceProtocol = OpenRouterChatService.shared,
-         modelRepository: ModelRepositoryProtocol = ModelRepository.shared,
-         conversationRepository: ConversationRepository = ConversationRepository.shared,
-        messageRepository: MessageRepository = MessageRepository.shared) {
+    convenience init() {
+        self.init(
+            chatService: OpenRouterChatService.shared,
+            modelRepository: ModelRepository.shared,
+            conversationRepository: ConversationRepository.shared,
+            messageRepository: MessageRepository.shared
+        )
+    }
+
+    init(chatService: ChatServiceProtocol,
+         modelRepository: ModelRepositoryProtocol,
+         conversationRepository: ConversationRepository,
+         messageRepository: MessageRepository) {
         self.chatService = chatService
         self.contextBuilder = ChatContextBuilder()
         self.turnRunner = ChatTurnRunner(chatService: chatService)
@@ -220,9 +234,7 @@ final class ChatViewModel {
         input.actions
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] action in
-                Task { @MainActor in
-                    self?.handle(action)
-                }
+                self?.handle(action)
             })
             .disposed(by: inputDisposeBag)
 
@@ -290,48 +302,69 @@ final class ChatViewModel {
     }
     
     func startNewConversation() {
+        cancelActiveGenerationForContextChange()
         clearStopNotices()
         applySessionSnapshot(sessionCoordinator.startNewConversation())
     }
 
     /// 用于“会话列表点击后，等数据加载完再切换”的体验：不会短暂展示上一会话内容。
     func selectConversationAfterLoaded(id: String) async {
+        let requestId = UUID()
         await MainActor.run {
+            cancelActiveGenerationForContextChange()
             clearStopNotices()
+            latestSelectionRequestId = requestId
             isSwitchingConversation = true
-        }
-
-        defer {
-            Task { @MainActor in
-                isSwitchingConversation = false
-            }
         }
 
         do {
             let loadedMessages = try await fetchMessagesInBackground(conversationId: id)
             await MainActor.run {
+                guard latestSelectionRequestId == requestId else { return }
                 applySessionSnapshot(
                     sessionCoordinator.selectConversation(
                         conversationId: id,
                         loadedMessages: loadedMessages
                     )
                 )
+                isSwitchingConversation = false
+                latestSelectionRequestId = nil
             }
         } catch {
             print("[ChatViewModel] ⚠️ Failed to load conversation: \(error)")
+            await MainActor.run {
+                guard latestSelectionRequestId == requestId else { return }
+                isSwitchingConversation = false
+                latestSelectionRequestId = nil
+            }
         }
     }
 
     private func fetchMessagesInBackground(conversationId: String) async throws -> [Message] {
         try await conversationUseCase.fetchMessagesInBackground(conversationId: conversationId)
     }
+
+    private func runInBackground<T>(_ work: @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
     
     func renameConversation(id: String, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                try conversationUseCase.renameConversation(id: id, title: trimmed)
+                try await runInBackground {
+                    try self.conversationUseCase.renameConversation(id: id, title: trimmed)
+                }
                 await MainActor.run {
                     self.conversations = self.conversationUseCase.applyRename(
                         id: id,
@@ -346,9 +379,12 @@ final class ChatViewModel {
     }
     
     func setPinned(id: String, isPinned: Bool) {
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                try conversationUseCase.setPinned(id: id, isPinned: isPinned)
+                try await runInBackground {
+                    try self.conversationUseCase.setPinned(id: id, isPinned: isPinned)
+                }
                 await MainActor.run {
                     self.conversations = self.conversationUseCase.applyPinned(
                         id: id,
@@ -363,18 +399,20 @@ final class ChatViewModel {
     }
     
     func deleteConversation(id: String) {
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                try conversationUseCase.deleteConversation(id: id)
+                try await runInBackground {
+                    try self.conversationUseCase.deleteConversation(id: id)
+                }
                 await MainActor.run {
                     self.conversations = self.conversationUseCase.removeConversation(
                         id: id,
                         conversations: self.conversations
                     )
                     if self.currentConversationId == id {
-                        self.currentConversationId = nil
-                        self.messages = []
-                        self.clearStopNotices()
+                        self.cancelActiveGenerationForContextChange()
+                        self.applySessionSnapshot(self.sessionCoordinator.clearMessages())
                     }
                 }
             } catch {
@@ -392,10 +430,44 @@ final class ChatViewModel {
         }
         Task {
             do {
-                try conversationUseCase.deleteMessage(id: id.uuidString)
+                try await runInBackground {
+                    try self.conversationUseCase.deleteMessage(id: id.uuidString)
+                }
             } catch {
                 print("[ChatViewModel] ⚠️ Failed to delete message: \(error)")
             }
+        }
+    }
+
+    @MainActor
+    func canStartSendMessage(content: String, mediaContents: [MediaContent]) -> Bool {
+        if isResettingPersistence {
+            errorMessage = "正在清空数据，请稍后重试。"
+            return false
+        }
+
+        let apiKey = AppConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !AppConfig.useMockData, apiKey.isEmpty {
+            errorMessage = "请先在设置中填写 OpenRouter API Key"
+            emitEvent(.switchToSettings)
+            return false
+        }
+
+        let previewUserMessage = Message(
+            content: content,
+            role: .user,
+            mediaContents: mediaContents
+        )
+        let validation = modelSelection.validateSelection(
+            selectedModel: selectedModel,
+            userMessage: previewUserMessage
+        )
+        switch validation {
+        case .ready:
+            return true
+        case .error(let message, _):
+            errorMessage = message
+            return false
         }
     }
     
@@ -403,14 +475,37 @@ final class ChatViewModel {
     @MainActor
     func startSendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) {
         activeSendTask?.cancel()
+        activeSendTaskToken = nil
+
+        let taskToken = UUID()
+        activeSendTaskToken = taskToken
+
         let task = Task { [weak self] in
             guard let self else { return }
             await self.sendMessage(content, imageData: imageData, imageMimeType: imageMimeType, mediaContents: mediaContents)
             await MainActor.run {
+                guard self.activeSendTaskToken == taskToken else { return }
                 self.activeSendTask = nil
+                self.activeSendTaskToken = nil
             }
         }
         activeSendTask = task
+    }
+
+    @MainActor
+    private func cancelActiveGenerationForContextChange() {
+        activeSendTask?.cancel()
+        activeSendTask = nil
+        activeSendTaskToken = nil
+        sendMessageUseCase.cancelActive()
+        latestSelectionRequestId = nil
+        if isSwitchingConversation {
+            isSwitchingConversation = false
+        }
+        if isLoading {
+            isLoading = false
+        }
+        currentTurnId = nil
     }
 
     /// UI 入口：停止当前生成
@@ -418,6 +513,7 @@ final class ChatViewModel {
     func stopGenerating() {
         activeSendTask?.cancel()
         activeSendTask = nil
+        activeSendTaskToken = nil
         sendMessageUseCase.cancelActive()
 
         guard isLoading else { return }
@@ -438,8 +534,9 @@ final class ChatViewModel {
         appendStopNotice(notice)
 
         if let updatedMessage {
+            let persistedConversationId = currentConversationId
             Task {
-                await updatePersistedMessage(updatedMessage)
+                await updatePersistedMessage(updatedMessage, conversationId: persistedConversationId)
             }
         }
     }
@@ -450,13 +547,28 @@ final class ChatViewModel {
         let env = ChatSendMessageEnvironment(
             ensureConversation: { self.ensureConversation() },
             setCurrentTurnId: { self.currentTurnId = $0 },
+            clearCurrentTurnIdIfMatches: { turnId in
+                if self.currentTurnId == turnId {
+                    self.currentTurnId = nil
+                }
+            },
+            getCurrentConversationId: { self.currentConversationId },
             getSelectedModel: { self.selectedModel },
+            getAvailableModels: { self.availableModels },
+            setSelectedModel: { self.selectedModel = $0 },
             buildMessagesForRequest: { self.buildMessagesForRequest(currentUserMessage: $0) },
             appendMessage: { self.appendMessage($0) },
             updateMessageContent: { messageId, content in self.updateMessageContent(messageId: messageId, content: content) },
-            finalizeStreamingMessage: { messageId in self.finalizeStreamingMessage(messageId: messageId) },
-            updatePersistedMessage: { message in
-                await self.updatePersistedMessage(message)
+            finalizeStreamingMessage: { messageId, metrics, runtimeStatusText, routingMetadata in
+                self.finalizeStreamingMessage(
+                    messageId: messageId,
+                    metrics: metrics,
+                    runtimeStatusText: runtimeStatusText,
+                    routingMetadata: routingMetadata
+                )
+            },
+            updatePersistedMessage: { message, conversationId in
+                await self.updatePersistedMessage(message, conversationId: conversationId)
             },
             batchUpdate: { updates in
                 self.batchSnapshotUpdate(updates)
@@ -480,9 +592,15 @@ final class ChatViewModel {
     // MARK: - Snapshot
     @MainActor
     func clearMessages() {
+        guard !isResettingPersistence else { return }
+
+        cancelActiveGenerationForContextChange()
         clearStopNotices()
         applySessionSnapshot(sessionCoordinator.clearMessages())
+        conversations = []
         logger.phase("conversation reset | conversationId=\(conversationId.uuidString)")
+
+        isResettingPersistence = true
         Task {
             await resetPersistence()
         }
@@ -492,8 +610,9 @@ final class ChatViewModel {
     private func appendMessage(_ message: Message) {
         messages.append(message)
 
+        let persistedConversationId = currentConversationId
         Task {
-            await persistMessage(message)
+            await persistMessage(message, conversationId: persistedConversationId)
         }
         
         if messages.count > maxStoredMessages {
@@ -504,16 +623,72 @@ final class ChatViewModel {
 
     @MainActor
     private func updateMessageContent(messageId: UUID, content: String) {
-        guard let index = messages.firstIndex(where: { $0.id == messageId }) else { return }
-        messages[index].content = content
+        pendingMessageContentUpdates[messageId] = content
+        scheduleMessageContentFlushIfNeeded()
     }
 
     @MainActor
-    private func finalizeStreamingMessage(messageId: UUID) -> Message? {
+    private func finalizeStreamingMessage(
+        messageId: UUID,
+        metrics: MessageMetrics?,
+        runtimeStatusText: String?,
+        routingMetadata: MessageRoutingMetadata?
+    ) -> Message? {
+        flushPendingMessageContentUpdates()
         guard let index = messages.firstIndex(where: { $0.id == messageId }) else { return nil }
-        messages[index].isStreaming = false
-        messages[index].wasStreamed = true
-        return messages[index]
+
+        var nextMessages = messages
+        nextMessages[index].isStreaming = false
+        nextMessages[index].wasStreamed = true
+        nextMessages[index].metrics = metrics
+        nextMessages[index].runtimeStatusText = runtimeStatusText
+        nextMessages[index].routingMetadata = routingMetadata
+        let updated = nextMessages[index]
+        messages = nextMessages
+        return updated
+    }
+
+    private func scheduleMessageContentFlushIfNeeded() {
+        guard !isMessageContentFlushScheduled else { return }
+        isMessageContentFlushScheduled = true
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.flushPendingMessageContentUpdates()
+        }
+    }
+
+    private func flushPendingMessageContentUpdates() {
+        guard !pendingMessageContentUpdates.isEmpty else {
+            isMessageContentFlushScheduled = false
+            return
+        }
+
+        let updates = pendingMessageContentUpdates
+        pendingMessageContentUpdates.removeAll(keepingCapacity: true)
+        isMessageContentFlushScheduled = false
+
+        var nextMessages = messages
+        var didChange = false
+        for (messageId, content) in updates {
+            guard let index = nextMessages.firstIndex(where: { $0.id == messageId }) else { continue }
+            if nextMessages[index].content != content {
+                nextMessages[index].content = content
+                didChange = true
+            }
+        }
+
+        if didChange {
+            messages = nextMessages
+        }
+
+        if !pendingMessageContentUpdates.isEmpty {
+            scheduleMessageContentFlushIfNeeded()
+        }
+    }
+
+    private func clearPendingMessageContentUpdates() {
+        pendingMessageContentUpdates.removeAll(keepingCapacity: false)
+        isMessageContentFlushScheduled = false
     }
     
     private func bootstrapConversation() {
@@ -526,8 +701,8 @@ final class ChatViewModel {
     }
     
     // MARK: - Persistence
-    private func persistMessage(_ message: Message) async {
-        guard let conversationId = currentConversationId else { return }
+    private func persistMessage(_ message: Message, conversationId: String?) async {
+        guard let conversationId else { return }
         do {
             let now = Date()
             if let newTitle = try await persistence.persistNewMessage(message, conversationId: conversationId) {
@@ -546,8 +721,8 @@ final class ChatViewModel {
         }
     }
     
-    private func updatePersistedMessage(_ message: Message) async {
-        guard let conversationId = currentConversationId else { return }
+    private func updatePersistedMessage(_ message: Message, conversationId: String?) async {
+        guard let conversationId else { return }
         do {
             let now = Date()
             try await persistence.updateMessage(message, conversationId: conversationId)
@@ -570,28 +745,43 @@ final class ChatViewModel {
     }
     
     private func resetPersistence() async {
+        var resetError: Error?
         do {
             try await persistence.resetAll()
-            await MainActor.run {
-                self.currentConversationId = nil
-            }
         } catch {
+            resetError = error
             print("[ChatViewModel] ⚠️ Failed to reset persistence: \(error)")
+        }
+
+        await MainActor.run {
+            self.isResettingPersistence = false
+            if resetError != nil {
+                self.errorMessage = "清空数据失败，请稍后重试。"
+            }
+            self.scheduleLoadConversations(debounceMs: 0)
         }
     }
     
     // MARK: - Conversation Creation
     @MainActor
     private func ensureConversation() -> Bool {
+        if isResettingPersistence {
+            errorMessage = "正在清空数据，请稍后重试。"
+            return false
+        }
+
         if currentConversationId != nil {
             return true
         }
         do {
             let conversation = try conversationUseCase.createConversation()
+            clearPendingMessageContentUpdates()
             currentConversationId = conversation.id
             conversationId = UUID()
+            turnIdFactory.conversationId = conversationId
             currentTurnId = nil
             messages = []
+            stopNotices.removeAll()
             conversations.insert(conversation, at: 0)
             return true
         } catch {
@@ -604,6 +794,7 @@ final class ChatViewModel {
     /// 应用会话快照到 UI 状态
     private func applySessionSnapshot(_ snapshot: ChatSessionSnapshot) {
         batchSnapshotUpdate {
+            clearPendingMessageContentUpdates()
             currentConversationId = snapshot.currentConversationId
             messages = snapshot.messages
             conversationId = snapshot.conversationId
@@ -659,7 +850,9 @@ final class ChatViewModel {
         conversationUseCase.loadConversations(
             debounceMs: debounceMs,
             onLoaded: { [weak self] records in
-                self?.conversations = records
+                guard let self else { return }
+                guard !self.isResettingPersistence else { return }
+                self.conversations = records
             },
             onError: { error in
                 print("[ChatViewModel] ⚠️ Failed to load conversations: \(error)")

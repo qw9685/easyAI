@@ -74,6 +74,9 @@ final class TextToSpeechManager: NSObject {
     }
 
     func startStreamingSession() {
+        if synthesizer.isSpeaking || synthesizer.isPaused {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
         isStreamingSessionActive = true
         lastStreamedText = ""
         pendingStreamBuffer = ""
@@ -255,41 +258,66 @@ private extension TextToSpeechManager {
 }
 
 extension TextToSpeechManager: AVSpeechSynthesizerDelegate {
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        lastProgressLogTime = 0
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            self?.handleSpeechStart()
+        }
     }
 
-    func speechSynthesizer(
+    nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer,
         willSpeakRangeOfSpeechString characterRange: NSRange,
         utterance: AVSpeechUtterance
     ) {
-        let now = Date().timeIntervalSince1970
-        if now - lastProgressLogTime < 0.5 { return }
-        lastProgressLogTime = now
-
         let total = utterance.speechString.count
         let current = min(characterRange.location, total)
-        let percent = total > 0 ? Int((Double(current) / Double(total)) * 100) : 0
-        log("tts progress | \(current)/\(total) (\(percent)%)")
-    }
-
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        log("tts finish")
-        playNextFromQueueIfNeeded()
-        if !synthesizer.isSpeaking && speechQueue.isEmpty {
-            deactivateAudioSession()
+        Task { @MainActor [weak self] in
+            self?.handleSpeechProgress(current: current, total: total)
         }
     }
 
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        log("tts cancel")
-        deactivateAudioSession()
-        isQueuePlaying = false
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let isStillSpeaking = synthesizer.isSpeaking
+        Task { @MainActor [weak self] in
+            self?.handleSpeechFinish(isStillSpeaking: isStillSpeaking)
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            self?.handleSpeechCancel()
+        }
     }
 }
 
 private extension TextToSpeechManager {
+    func handleSpeechStart() {
+        lastProgressLogTime = 0
+    }
+
+    func handleSpeechProgress(current: Int, total: Int) {
+        let now = Date().timeIntervalSince1970
+        if now - lastProgressLogTime < 0.5 { return }
+        lastProgressLogTime = now
+
+        let percent = total > 0 ? Int((Double(current) / Double(total)) * 100) : 0
+        log("tts progress | \(current)/\(total) (\(percent)%)")
+    }
+
+    func handleSpeechFinish(isStillSpeaking: Bool) {
+        log("tts finish")
+        playNextFromQueueIfNeeded()
+        if !isStillSpeaking && speechQueue.isEmpty {
+            deactivateAudioSession()
+        }
+    }
+
+    func handleSpeechCancel() {
+        log("tts cancel")
+        deactivateAudioSession()
+        isQueuePlaying = false
+    }
+
     func log(_ message: String) {
         if AppConfig.enablephaseLogs {
             print(message)

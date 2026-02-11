@@ -14,18 +14,32 @@ import Foundation
 struct ChatSendMessageEnvironment {
     var ensureConversation: @MainActor () -> Bool
     var setCurrentTurnId: @MainActor (UUID?) -> Void
+    var clearCurrentTurnIdIfMatches: @MainActor (UUID) -> Void
+    var getCurrentConversationId: @MainActor () -> String?
     var getSelectedModel: @MainActor () -> AIModel?
+    var getAvailableModels: @MainActor () -> [AIModel]
+    var setSelectedModel: @MainActor (AIModel) -> Void
     var buildMessagesForRequest: @MainActor (_ currentUserMessage: Message) -> [Message]
 
     var appendMessage: @MainActor (Message) -> Void
     var updateMessageContent: @MainActor (_ messageId: UUID, _ content: String) -> Void
-    var finalizeStreamingMessage: @MainActor (_ messageId: UUID) -> Message?
-    var updatePersistedMessage: (_ message: Message) async -> Void
+    var finalizeStreamingMessage: @MainActor (_ messageId: UUID, _ metrics: MessageMetrics?, _ runtimeStatusText: String?, _ routingMetadata: MessageRoutingMetadata?) -> Message?
+    var updatePersistedMessage: (_ message: Message, _ conversationId: String?) async -> Void
 
     var batchUpdate: @MainActor (_ updates: () -> Void) -> Void
     var setIsLoading: @MainActor (Bool) -> Void
     var setErrorMessage: @MainActor (String?) -> Void
     var emitEvent: @MainActor (_ event: ChatViewModel.Event) -> Void
+}
+
+private struct FallbackAttempt {
+    let modelName: String
+    let attempt: Int
+}
+
+private struct SmartRoutingResult {
+    let metadata: MessageRoutingMetadata
+    let statusText: String
 }
 
 @MainActor
@@ -34,18 +48,23 @@ final class ChatSendMessageUseCase {
     private let turnRunner: ChatTurnRunner
     private let turnIdFactory: ChatTurnIdFactory
     private let logger: ChatLogger
+    private let fallbackPolicy = ModelFallbackPolicy()
+    private let routingEngine = ModelRoutingEngine()
+    private let providerStatsRepository: ProviderStatsRepository
     private var activeTypewriter: ChatTypewriter?
 
     init(
         modelSelection: ModelSelectionCoordinator,
         turnRunner: ChatTurnRunner,
         turnIdFactory: ChatTurnIdFactory,
-        logger: ChatLogger
+        logger: ChatLogger,
+        providerStatsRepository: ProviderStatsRepository? = nil
     ) {
         self.modelSelection = modelSelection
         self.turnRunner = turnRunner
         self.turnIdFactory = turnIdFactory
         self.logger = logger
+        self.providerStatsRepository = providerStatsRepository ?? .shared
     }
 
     func execute(
@@ -64,6 +83,7 @@ final class ChatSendMessageUseCase {
         }
 
         guard env.ensureConversation() else { return }
+        let activeConversationId = env.getCurrentConversationId()
         activeTypewriter?.cancel()
         activeTypewriter = nil
         let useTypewriter = AppConfig.enableTypewriter
@@ -93,7 +113,7 @@ final class ChatSendMessageUseCase {
         env.appendMessage(userMessage)
 
         let validation = modelSelection.validateSelection(selectedModel: env.getSelectedModel(), userMessage: userMessage)
-        let model: AIModel
+        var model: AIModel
         switch validation {
         case .ready(let selected):
             model = selected
@@ -102,7 +122,7 @@ final class ChatSendMessageUseCase {
             let errorMsg = Message(content: message, role: .assistant, turnId: turnId, baseId: baseId, itemId: errorItemId)
             env.appendMessage(errorMsg)
             logger.phase("turn end | baseId=\(baseId) | reason=\(reason)")
-            env.setCurrentTurnId(nil)
+            env.clearCurrentTurnIdIfMatches(turnId)
             env.setIsLoading(false)
             return
         }
@@ -110,103 +130,168 @@ final class ChatSendMessageUseCase {
         env.setIsLoading(true)
         env.setErrorMessage(nil)
 
-        do {
-            if AppConfig.enableStream {
-                // 注意：messagesToSend 不能包含“空的 streaming assistant 占位消息”，否则会污染上下文。
-                let messagesToSend = env.buildMessagesForRequest(userMessage)
+        let requestMessages = env.buildMessagesForRequest(userMessage)
+        let routingResult = maybeApplySmartRouting(
+            content: content,
+            userMessage: userMessage,
+            requestMessages: requestMessages,
+            currentModel: &model,
+            env: env
+        )
 
-                let assistantMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "assistant_stream", part: "main")
-                let assistantMessage = Message(
-                    content: "",
-                    role: .assistant,
-                    isStreaming: true,
+        var attemptIndex = 0
+        var fallbackAttempts: [FallbackAttempt] = []
+        var triedModelIds: Set<String> = [model.id]
+        let maxRetries = max(0, AppConfig.fallbackMaxRetries)
+        let requiresMultimodal = userMessage.hasMedia
+        providerStatsRepository.recordRequest(providerId: model.provider.rawValue)
+
+        while true {
+            do {
+                try await executeOnce(
+                    model: model,
                     turnId: turnId,
                     baseId: baseId,
-                    itemId: assistantMessageItemId
+                    userMessage: userMessage,
+                    useTypewriter: useTypewriter,
+                    fallbackAttempts: fallbackAttempts,
+                    routingResult: routingResult,
+                    conversationId: activeConversationId,
+                    env: env,
+                    streamingMessageId: &streamingMessageId
                 )
-                env.appendMessage(assistantMessage)
-                streamingMessageId = assistantMessage.id
-                TextToSpeechManager.shared.startStreamingSession()
+                return
+            } catch {
+                TextToSpeechManager.shared.finishStreamingSession()
+                activeTypewriter?.cancel()
+                activeTypewriter = nil
 
-                let messageId = assistantMessage.id
-                logger.phase("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString)")
-
-                if !useTypewriter {
-                    let result = try await turnRunner.runStream(
-                        messages: messagesToSend,
-                        model: model.apiModel,
-                        onProgress: { progress in
-                            env.updateMessageContent(messageId, progress.fullContent)
-                            TextToSpeechManager.shared.updateStreamingText(progress.fullContent)
-                            if progress.chunkCount == 1 || progress.chunkCount % 50 == 0 {
-                                self.logger.phase(
-                                    "stream chunk | baseId=\(baseId) | itemId=\(assistantMessageItemId) | chunks=\(progress.chunkCount) | len=\(progress.fullContent.count)"
-                                )
-                            }
+                if Task.isCancelled || error is CancellationError {
+                    TextToSpeechManager.shared.stop()
+                    var updated: Message?
+                    env.batchUpdate {
+                        env.setIsLoading(false)
+                        if let messageId = streamingMessageId {
+                            updated = env.finalizeStreamingMessage(messageId, nil, nil, routingResult?.metadata)
                         }
-                    )
-
-                    let updated: Message? = await MainActor.run {
-                        var updated: Message?
-                        env.batchUpdate {
-                            env.setIsLoading(false)
-                            updated = env.finalizeStreamingMessage(messageId)
-                        }
-                        return updated
                     }
-
                     if let updated {
-                        await env.updatePersistedMessage(updated)
+                        await env.updatePersistedMessage(updated, activeConversationId)
                     }
-                    TextToSpeechManager.shared.finishStreamingSession()
-
-                    logger.phase(
-                        "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
-                    )
-                    env.setCurrentTurnId(nil)
+                    env.clearCurrentTurnIdIfMatches(turnId)
+                    logger.phase("turn end | baseId=\(baseId) | reason=cancelled")
                     return
                 }
 
-                var streamResult: ChatStreamResult?
-                let typewriterConfig = ChatTypewriter.Config(
-                    tickInterval: max(0.02, 0.08 / AppConfig.typewriterSpeed),
-                    minCharsPerTick: 1,
-                    maxCharsPerTick: 8
-                )
-                let typewriter = ChatTypewriter(
-                    config: typewriterConfig,
-                    updateDisplay: { text in
-                        env.updateMessageContent(messageId, text)
-                    },
-                    onFinish: { [weak self] in
-                        var updated: Message?
+                let classified = OpenRouterErrorClassifier.classify(error)
+                let canFallback = AppConfig.fallbackEnabled
+                    && attemptIndex < maxRetries
+                    && shouldRetryWithFallback(for: classified.category)
+
+                if canFallback,
+                   let nextModel = fallbackPolicy.nextModel(
+                    currentModel: model,
+                    availableModels: env.getAvailableModels(),
+                    attemptIndex: attemptIndex,
+                    category: classified.category,
+                    budgetMode: AppConfig.fallbackBudgetMode,
+                    triedModelIds: triedModelIds,
+                    requiresMultimodal: requiresMultimodal
+                   ) {
+                    providerStatsRepository.recordFailure(providerId: model.provider.rawValue, category: classified.category)
+
+                    var finalizedForRetry: Message?
+                    if let currentStreamingMessageId = streamingMessageId {
                         env.batchUpdate {
-                            env.setIsLoading(false)
-                            updated = env.finalizeStreamingMessage(messageId)
-                        }
-                        if let updated {
-                            Task { await env.updatePersistedMessage(updated) }
-                        }
-                        Task { @MainActor in
-                            TextToSpeechManager.shared.finishStreamingSession()
-                        }
-                        if let result = streamResult {
-                            self?.logger.phase(
-                                "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
+                            finalizedForRetry = env.finalizeStreamingMessage(
+                                currentStreamingMessageId,
+                                nil,
+                                "当前模型请求失败，准备切换重试",
+                                routingResult?.metadata
                             )
                         }
-                        env.setCurrentTurnId(nil)
-                        self?.activeTypewriter = nil
                     }
-                )
-                activeTypewriter = typewriter
-                typewriter.start()
+                    if let finalizedForRetry {
+                        await env.updatePersistedMessage(finalizedForRetry, activeConversationId)
+                    }
+                    streamingMessageId = nil
 
+                    attemptIndex += 1
+                    model = nextModel
+                    fallbackAttempts.append(FallbackAttempt(modelName: nextModel.name, attempt: attemptIndex))
+                    triedModelIds.insert(nextModel.id)
+                    env.setSelectedModel(nextModel)
+                    providerStatsRepository.recordRequest(providerId: nextModel.provider.rawValue)
+                    env.setErrorMessage("请求失败，已自动切换到 \(nextModel.name) 重试（\(attemptIndex)/\(maxRetries)）")
+                    logger.phase("fallback | baseId=\(baseId) | nextModel=\(nextModel.apiModel) | attempt=\(attemptIndex)")
+                    continue
+                }
+
+                await emitErrorMessage(
+                    classified: classified,
+                    turnId: turnId,
+                    baseId: baseId,
+                    providerId: model.provider.rawValue,
+                    env: env,
+                    streamingMessageId: streamingMessageId,
+                    fallbackStatusText: makeFallbackStatusText(fallbackAttempts),
+                    routingMetadata: routingResult?.metadata,
+                    conversationId: activeConversationId
+                )
+                return
+            }
+        }
+    }
+
+    private func executeOnce(
+        model: AIModel,
+        turnId: UUID,
+        baseId: String,
+        userMessage: Message,
+        useTypewriter: Bool,
+        fallbackAttempts: [FallbackAttempt],
+        routingResult: SmartRoutingResult?,
+        conversationId: String?,
+        env: ChatSendMessageEnvironment,
+        streamingMessageId: inout UUID?
+    ) async throws {
+        let fallbackStatusText = makeFallbackStatusText(fallbackAttempts)
+        let routingMetadata = routingResult?.metadata
+        let routingStatusText = routingResult?.statusText
+        if AppConfig.enableStream {
+            // 注意：messagesToSend 不能包含“空的 streaming assistant 占位消息”，否则会污染上下文。
+            let messagesToSend = env.buildMessagesForRequest(userMessage)
+            let nativeFallbackModels = makeNativeFallbackModels(
+                currentModel: model,
+                availableModels: env.getAvailableModels(),
+                requiresMultimodal: userMessage.hasMedia
+            )
+
+            let assistantMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "assistant_stream", part: "main")
+            let assistantMessage = Message(
+                content: "",
+                role: .assistant,
+                isStreaming: true,
+                turnId: turnId,
+                baseId: baseId,
+                itemId: assistantMessageItemId,
+                runtimeStatusText: mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+                routingMetadata: routingMetadata
+            )
+            env.appendMessage(assistantMessage)
+            streamingMessageId = assistantMessage.id
+            TextToSpeechManager.shared.startStreamingSession()
+
+            let messageId = assistantMessage.id
+            logger.phase("assistant stream init | baseId=\(baseId) | itemId=\(assistantMessageItemId) | messageId=\(messageId.uuidString) | model=\(model.apiModel)")
+
+            if !useTypewriter {
                 let result = try await turnRunner.runStream(
                     messages: messagesToSend,
                     model: model.apiModel,
+                    fallbackModelIDs: nativeFallbackModels,
                     onProgress: { progress in
-                        typewriter.updateTarget(progress.fullContent)
+                        env.updateMessageContent(messageId, progress.fullContent)
                         TextToSpeechManager.shared.updateStreamingText(progress.fullContent)
                         if progress.chunkCount == 1 || progress.chunkCount % 50 == 0 {
                             self.logger.phase(
@@ -215,116 +300,448 @@ final class ChatSendMessageUseCase {
                         }
                     }
                 )
-                streamResult = result
-                typewriter.updateTarget(result.fullContent)
-                typewriter.markStreamEnded()
-                TextToSpeechManager.shared.finishStreamingSession()
-            } else {
-                let messagesToSend = env.buildMessagesForRequest(userMessage)
-                let response = try await turnRunner.runNonStream(messages: messagesToSend, model: model.apiModel)
+                let streamMetrics = makeMetrics(
+                    requestMessages: messagesToSend,
+                    responseText: result.fullContent,
+                    model: model,
+                    latencyMs: result.durationMs
+                )
 
-                let assistantMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "assistant_final", part: "main")
-                if !useTypewriter {
-                    let assistantMessage = Message(
-                        content: response,
-                        role: .assistant,
-                        turnId: turnId,
-                        baseId: baseId,
-                        itemId: assistantMessageItemId
-                    )
-
+                let updated: Message? = await MainActor.run {
+                    var updated: Message?
                     env.batchUpdate {
                         env.setIsLoading(false)
-                        env.appendMessage(assistantMessage)
+                        updated = env.finalizeStreamingMessage(
+                            messageId,
+                            streamMetrics,
+                            mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+                            routingMetadata
+                        )
                     }
-
-                    await MainActor.run {
-                        TextToSpeechManager.shared.speak(assistantMessage.content)
-                    }
-
-                    logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
-                    env.setCurrentTurnId(nil)
-                    return
+                    return updated
                 }
 
-                let assistantMessage = Message(
-                    content: "",
-                    role: .assistant,
-                    isStreaming: true,
-                    turnId: turnId,
-                    baseId: baseId,
-                    itemId: assistantMessageItemId
-                )
-
-                env.appendMessage(assistantMessage)
-                streamingMessageId = assistantMessage.id
-
-                let messageId = assistantMessage.id
-                let typewriterConfig = ChatTypewriter.Config(
-                    tickInterval: max(0.02, 0.08 / AppConfig.typewriterSpeed),
-                    minCharsPerTick: 1,
-                    maxCharsPerTick: 8
-                )
-                let typewriter = ChatTypewriter(
-                    config: typewriterConfig,
-                    updateDisplay: { text in
-                        env.updateMessageContent(messageId, text)
-                    },
-                    onFinish: { [weak self] in
-                        var updated: Message?
-                        env.batchUpdate {
-                            env.setIsLoading(false)
-                            updated = env.finalizeStreamingMessage(messageId)
-                        }
-                        if let updated {
-                            Task { await env.updatePersistedMessage(updated) }
-                            Task { @MainActor in
-                                TextToSpeechManager.shared.speak(updated.content)
-                            }
-                        }
-                        self?.logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
-                        env.setCurrentTurnId(nil)
-                        self?.activeTypewriter = nil
-                    }
-                )
-                activeTypewriter = typewriter
-                typewriter.start()
-                typewriter.updateTarget(response)
-                typewriter.markStreamEnded()
-            }
-        } catch {
-            TextToSpeechManager.shared.finishStreamingSession()
-            activeTypewriter?.cancel()
-            activeTypewriter = nil
-            if Task.isCancelled || error is CancellationError {
-                TextToSpeechManager.shared.stop()
-                var updated: Message?
-                env.batchUpdate {
-                    env.setIsLoading(false)
-                    if let messageId = streamingMessageId {
-                        updated = env.finalizeStreamingMessage(messageId)
-                    }
-                }
                 if let updated {
-                    await env.updatePersistedMessage(updated)
+                    providerStatsRepository.recordSuccess(providerId: model.provider.rawValue, metrics: streamMetrics)
+                    await env.updatePersistedMessage(updated, conversationId)
                 }
-                env.setCurrentTurnId(nil)
-                logger.phase("turn end | baseId=\(baseId) | reason=cancelled")
+                TextToSpeechManager.shared.finishStreamingSession()
+
+                logger.phase(
+                    "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
+                )
+                env.clearCurrentTurnIdIfMatches(turnId)
                 return
             }
 
-            let errorDesc = error.localizedDescription
-            env.setErrorMessage(errorDesc)
+            var streamResult: ChatStreamResult?
+            var streamMetrics: MessageMetrics?
+            let typewriterConfig = makeTypewriterConfig()
+            let combinedStatusText = mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText)
+            let typewriter = ChatTypewriter(
+                config: typewriterConfig,
+                updateDisplay: { text in
+                    env.updateMessageContent(messageId, text)
+                },
+                onFinish: { [weak self] in
+                    var updated: Message?
+                    env.batchUpdate {
+                        env.setIsLoading(false)
+                        updated = env.finalizeStreamingMessage(
+                            messageId,
+                            streamMetrics,
+                            combinedStatusText,
+                            routingMetadata
+                        )
+                    }
+                    if let updated {
+                        self?.providerStatsRepository.recordSuccess(providerId: model.provider.rawValue, metrics: streamMetrics)
+                        Task { await env.updatePersistedMessage(updated, conversationId) }
+                    }
+                    Task { @MainActor in
+                        TextToSpeechManager.shared.finishStreamingSession()
+                    }
+                    if let result = streamResult {
+                        self?.logger.phase(
+                            "turn end | baseId=\(baseId) | reason=closed | chunks=\(result.chunkCount) | len=\(result.fullContent.count) | durationMs=\(result.durationMs)"
+                        )
+                    }
+                    env.clearCurrentTurnIdIfMatches(turnId)
+                    self?.activeTypewriter = nil
+                }
+            )
+            activeTypewriter = typewriter
+            typewriter.start()
+
+            let result = try await turnRunner.runStream(
+                messages: messagesToSend,
+                model: model.apiModel,
+                fallbackModelIDs: nativeFallbackModels,
+                onProgress: { progress in
+                    typewriter.updateTarget(progress.fullContent)
+                    TextToSpeechManager.shared.updateStreamingText(progress.fullContent)
+                    if progress.chunkCount == 1 || progress.chunkCount % 50 == 0 {
+                        self.logger.phase(
+                            "stream chunk | baseId=\(baseId) | itemId=\(assistantMessageItemId) | chunks=\(progress.chunkCount) | len=\(progress.fullContent.count)"
+                        )
+                    }
+                }
+            )
+            streamResult = result
+            streamMetrics = makeMetrics(
+                requestMessages: messagesToSend,
+                responseText: result.fullContent,
+                model: model,
+                latencyMs: result.durationMs
+            )
+            typewriter.updateTarget(result.fullContent)
+            typewriter.markStreamEnded()
+            TextToSpeechManager.shared.finishStreamingSession()
+            return
+        }
+
+        let messagesToSend = env.buildMessagesForRequest(userMessage)
+        let nativeFallbackModels = makeNativeFallbackModels(
+            currentModel: model,
+            availableModels: env.getAvailableModels(),
+            requiresMultimodal: userMessage.hasMedia
+        )
+        if !nativeFallbackModels.isEmpty {
+            logger.phase("native fallback chain | primary=\(model.apiModel) | fallbacks=\(nativeFallbackModels.joined(separator: " -> "))")
+        }
+        let nonStreamStartTime = Date()
+        let serviceResponse = try await turnRunner.runNonStream(
+            messages: messagesToSend,
+            model: model.apiModel,
+            fallbackModelIDs: nativeFallbackModels
+        )
+        let response = serviceResponse.content
+        let nonStreamDurationMs = Int(Date().timeIntervalSince(nonStreamStartTime) * 1000)
+        let nonStreamMetrics = makeMetrics(
+            requestMessages: messagesToSend,
+            responseText: response,
+            model: model,
+            latencyMs: nonStreamDurationMs,
+            usage: serviceResponse.usage
+        )
+
+        let assistantMessageItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "assistant_final", part: "main")
+        if !useTypewriter {
+            let assistantMessage = Message(
+                content: response,
+                role: .assistant,
+                turnId: turnId,
+                baseId: baseId,
+                itemId: assistantMessageItemId,
+                metrics: nonStreamMetrics,
+                runtimeStatusText: mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+                routingMetadata: routingMetadata
+            )
+
             env.batchUpdate {
                 env.setIsLoading(false)
-                let errorContent = "抱歉，发生了错误：\(errorDesc)"
-                let errorItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "error", part: "main")
-                let errorMsg = Message(content: errorContent, role: .assistant, turnId: turnId, baseId: baseId, itemId: errorItemId)
-                env.appendMessage(errorMsg)
-                env.setCurrentTurnId(nil)
+                env.appendMessage(assistantMessage)
             }
-            logger.phase("turn end | baseId=\(baseId) | reason=error | error=\(errorDesc)")
+
+            providerStatsRepository.recordSuccess(providerId: model.provider.rawValue, metrics: nonStreamMetrics)
+
+            await MainActor.run {
+                TextToSpeechManager.shared.speak(assistantMessage.content)
+            }
+
+            logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
+            env.clearCurrentTurnIdIfMatches(turnId)
+            return
         }
+
+        let assistantMessage = Message(
+            content: "",
+            role: .assistant,
+            isStreaming: true,
+            turnId: turnId,
+            baseId: baseId,
+            itemId: assistantMessageItemId,
+            runtimeStatusText: mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText),
+            routingMetadata: routingMetadata
+        )
+
+        env.appendMessage(assistantMessage)
+        streamingMessageId = assistantMessage.id
+
+        let messageId = assistantMessage.id
+        let typewriterConfig = makeTypewriterConfig()
+        let combinedStatusText = mergedStatusText(fallbackStatusText: fallbackStatusText, routingStatusText: routingStatusText)
+        let typewriter = ChatTypewriter(
+            config: typewriterConfig,
+            updateDisplay: { text in
+                env.updateMessageContent(messageId, text)
+            },
+            onFinish: { [weak self] in
+                var updated: Message?
+                env.batchUpdate {
+                    env.setIsLoading(false)
+                    updated = env.finalizeStreamingMessage(
+                        messageId,
+                        nonStreamMetrics,
+                        combinedStatusText,
+                        routingMetadata
+                    )
+                }
+                if let updated {
+                    self?.providerStatsRepository.recordSuccess(providerId: model.provider.rawValue, metrics: nonStreamMetrics)
+                    Task { await env.updatePersistedMessage(updated, conversationId) }
+                    Task { @MainActor in
+                        TextToSpeechManager.shared.speak(updated.content)
+                    }
+                }
+                self?.logger.phase("turn end | baseId=\(baseId) | reason=non_stream_done | len=\(response.count)")
+                env.clearCurrentTurnIdIfMatches(turnId)
+                self?.activeTypewriter = nil
+            }
+        )
+        activeTypewriter = typewriter
+        typewriter.start()
+        typewriter.updateTarget(response)
+        typewriter.markStreamEnded()
+    }
+
+    private func emitErrorMessage(
+        classified: ClassifiedChatError,
+        turnId: UUID,
+        baseId: String,
+        providerId: String,
+        env: ChatSendMessageEnvironment,
+        streamingMessageId: UUID?,
+        fallbackStatusText: String?,
+        routingMetadata: MessageRoutingMetadata?,
+        conversationId: String?
+    ) async {
+        providerStatsRepository.recordFailure(providerId: providerId, category: classified.category)
+        env.setErrorMessage(classified.bannerMessage)
+        var updated: Message?
+        env.batchUpdate {
+            env.setIsLoading(false)
+            if let messageId = streamingMessageId {
+                let mergedStatusText: String?
+                if let fallbackStatusText, !fallbackStatusText.isEmpty {
+                    mergedStatusText = "\(fallbackStatusText) · \(classified.statusMessage)"
+                } else {
+                    mergedStatusText = classified.statusMessage
+                }
+                updated = env.finalizeStreamingMessage(messageId, nil, mergedStatusText, routingMetadata)
+            }
+            let errorItemId = turnIdFactory.makeItemId(baseId: baseId, kind: "error", part: classified.category.rawValue)
+            let errorMsg = Message(
+                content: "抱歉，发生了错误：\(classified.userMessage)",
+                role: .assistant,
+                turnId: turnId,
+                baseId: baseId,
+                itemId: errorItemId,
+                runtimeStatusText: classified.statusMessage,
+                routingMetadata: routingMetadata
+            )
+            env.appendMessage(errorMsg)
+            env.clearCurrentTurnIdIfMatches(turnId)
+        }
+        if let updated {
+            await env.updatePersistedMessage(updated, conversationId)
+        }
+        logger.phase("turn end | baseId=\(baseId) | reason=error | category=\(classified.category.rawValue) | error=\(classified.technicalMessage)")
+    }
+
+    private func makeFallbackStatusText(_ attempts: [FallbackAttempt]) -> String? {
+        guard let last = attempts.last else { return nil }
+        return "已切换到 \(last.modelName)（重试 \(last.attempt) 次）"
+    }
+
+    private func mergedStatusText(fallbackStatusText: String?, routingStatusText: String?) -> String? {
+        let parts = [routingStatusText, fallbackStatusText].compactMap { text -> String? in
+            guard let text, !text.isEmpty else { return nil }
+            return text
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
+
+
+
+    private func shouldRetryWithFallback(for category: ChatErrorCategory) -> Bool {
+        switch category {
+        case .rateLimited:
+            return AppConfig.fallbackRetryOnRateLimited
+        case .timeout:
+            return AppConfig.fallbackRetryOnTimeout
+        case .serverUnavailable:
+            return AppConfig.fallbackRetryOnServerUnavailable
+        case .network:
+            return AppConfig.fallbackRetryOnNetwork
+        case .insufficientCredits, .invalidModel, .modelNotFound, .modelNotSupportMultimodal, .contextTooLong, .missingAPIKey, .cancelled:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
+    private func maybeApplySmartRouting(
+        content: String,
+        userMessage: Message,
+        requestMessages: [Message],
+        currentModel: inout AIModel,
+        env: ChatSendMessageEnvironment
+    ) -> SmartRoutingResult? {
+        guard AppConfig.routingMode == .smart else { return nil }
+
+        let intent = TaskIntent.infer(
+            content: content,
+            hasMedia: userMessage.hasMedia,
+            requestMessages: requestMessages
+        )
+
+        guard let decision = routingEngine.recommendModel(
+            currentModel: currentModel,
+            availableModels: env.getAvailableModels(),
+            intent: intent,
+            budgetMode: AppConfig.budgetMode
+        ) else {
+            return nil
+        }
+
+        let previousModelId = currentModel.id
+        let metadata = MessageRoutingMetadata(
+            fromModelId: previousModelId,
+            toModelId: decision.model.id,
+            reason: decision.reason,
+            mode: AppConfig.routingMode,
+            budgetMode: AppConfig.budgetMode
+        )
+
+        currentModel = decision.model
+        env.setSelectedModel(decision.model)
+        let statusText = "智能路由：\(decision.model.name)"
+        env.setErrorMessage("已按智能路由切换到 \(decision.model.name)")
+        logger.phase("smart routing | model=\(decision.model.apiModel) | reason=\(decision.reason)")
+        return SmartRoutingResult(metadata: metadata, statusText: statusText)
+    }
+
+    /// 尾段速度随“打字机速度”提升，避免最后 200 字固定 1 字/ tick 的视觉拖慢。
+    private func makeTypewriterConfig() -> ChatTypewriter.Config {
+        let speed = AppConfig.clampTypewriterSpeed(AppConfig.typewriterSpeed)
+        return ChatTypewriter.Config(
+            tickInterval: max(0.02, 0.08 / speed),
+            minCharsPerTick: AppConfig.typewriterMinCharsPerTick(for: speed),
+            maxCharsPerTick: AppConfig.typewriterMaxCharsPerTick(for: speed)
+        )
+    }
+
+    private func makeMetrics(
+        requestMessages: [Message],
+        responseText: String,
+        model: AIModel,
+        latencyMs: Int,
+        usage: ChatTokenUsage? = nil
+    ) -> MessageMetrics {
+        let estimatedPromptTokens = estimatePromptTokens(from: requestMessages)
+        let estimatedCompletionTokens = estimateTextTokens(responseText)
+        let promptTokens = usage?.promptTokens ?? estimatedPromptTokens
+        let completionTokens = usage?.completionTokens ?? estimatedCompletionTokens
+        let totalTokens = usage?.totalTokens ?? (promptTokens + completionTokens)
+        let estimatedCostUSD = estimateCostUSD(
+            model: model,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens
+        )
+        let isEstimated = usage == nil
+
+        return MessageMetrics(
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            totalTokens: totalTokens,
+            latencyMs: latencyMs,
+            estimatedCostUSD: estimatedCostUSD,
+            isEstimated: isEstimated
+        )
+    }
+
+    private func estimatePromptTokens(from messages: [Message]) -> Int {
+        var approxChars = 0
+        for message in messages {
+            let roleOverhead = 8
+            var mediaOverhead = 0
+            for media in message.mediaContents {
+                switch media.type {
+                case .image:
+                    mediaOverhead += 180
+                case .video, .audio, .document, .pdf:
+                    mediaOverhead += 120
+                }
+            }
+            approxChars += message.content.count + roleOverhead + mediaOverhead
+        }
+        return estimateTextTokensByCharCount(approxChars)
+    }
+
+    private func estimateTextTokens(_ text: String) -> Int {
+        estimateTextTokensByCharCount(text.count)
+    }
+
+    private func estimateTextTokensByCharCount(_ charCount: Int) -> Int {
+        guard charCount > 0 else { return 0 }
+        return Int((Double(charCount) / 3.6).rounded(.up))
+    }
+
+    private func estimateCostUSD(model: AIModel, promptTokens: Int, completionTokens: Int) -> Double? {
+        let promptRate = parsePrice(model.pricing?.prompt) ?? 0
+        let completionRate = parsePrice(model.pricing?.completion) ?? 0
+        guard promptRate > 0 || completionRate > 0 else { return nil }
+
+        let promptCost = Double(promptTokens) * promptRate
+        let completionCost = Double(completionTokens) * completionRate
+        return promptCost + completionCost
+    }
+
+    private func parsePrice(_ raw: String?) -> Double? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let normalized = raw
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: ",", with: "")
+        return Double(normalized)
+    }
+
+    private func makeNativeFallbackModels(
+        currentModel: AIModel,
+        availableModels: [AIModel],
+        requiresMultimodal: Bool
+    ) -> [String] {
+        let nativeFallbackDepth = AppConfig.nativeFallbackDepth
+        guard AppConfig.fallbackEnabled, nativeFallbackDepth > 0 else { return [] }
+
+        var triedModelIds: Set<String> = [currentModel.id]
+        var cursorModel = currentModel
+        var fallbackModelIDs: [String] = []
+        var attemptIndex = 0
+
+        while attemptIndex < nativeFallbackDepth,
+              let next = fallbackPolicy.nextModel(
+                currentModel: cursorModel,
+                availableModels: availableModels,
+                attemptIndex: attemptIndex,
+                category: .serverUnavailable,
+                budgetMode: AppConfig.fallbackBudgetMode,
+                triedModelIds: triedModelIds,
+                requiresMultimodal: requiresMultimodal
+              ) {
+            let apiModel = next.apiModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !apiModel.isEmpty {
+                fallbackModelIDs.append(apiModel)
+            }
+            triedModelIds.insert(next.id)
+            cursorModel = next
+            attemptIndex += 1
+        }
+
+        return fallbackModelIDs
     }
 
     func cancelActive() {
@@ -349,6 +766,12 @@ private final class ChatTypewriter {
     private var displayText: String = ""
     private var streamEnded = false
     private var task: Task<Void, Never>?
+    private var tickCount: Int = 0
+    private var lastTickDate: Date = Date()
+    private var totalTickIntervalMs: Double = 0
+    private var maxTickIntervalMs: Double = 0
+    private var cachedTableRanges: [(start: Int, end: Int)] = []
+    private var isTableRangesDirty: Bool = true
 
     init(
         config: Config,
@@ -362,6 +785,12 @@ private final class ChatTypewriter {
 
     func start() {
         guard task == nil else { return }
+        tickCount = 0
+        totalTickIntervalMs = 0
+        maxTickIntervalMs = 0
+        lastTickDate = Date()
+        cachedTableRanges.removeAll(keepingCapacity: true)
+        isTableRangesDirty = true
         task = Task { [weak self] in
             await self?.runLoop()
         }
@@ -370,8 +799,10 @@ private final class ChatTypewriter {
     func updateTarget(_ text: String) {
         if text.count >= targetText.count {
             targetText = text
+            isTableRangesDirty = true
         } else {
             targetText = text
+            isTableRangesDirty = true
             if displayText.count > text.count {
                 displayText = text
                 updateDisplay(safeDisplayText(displayText, isFinal: false))
@@ -393,10 +824,38 @@ private extension ChatTypewriter {
     func runLoop() async {
         while !Task.isCancelled {
             if displayText.count < targetText.count {
+                let now = Date()
+                let tickIntervalMs = now.timeIntervalSince(lastTickDate) * 1000
+                lastTickDate = now
+
+                tickCount += 1
+                if tickCount > 1 {
+                    totalTickIntervalMs += tickIntervalMs
+                    maxTickIntervalMs = max(maxTickIntervalMs, tickIntervalMs)
+                }
+
                 displayText = nextDisplayText(current: displayText, target: targetText)
                 updateDisplay(safeDisplayText(displayText, isFinal: false))
+
+                if AppConfig.enablephaseLogs,
+                   (tickCount == 1 || tickCount % 60 == 0) {
+                    let avgTickMs = tickCount > 1
+                        ? totalTickIntervalMs / Double(tickCount - 1)
+                        : 0
+                    print(
+                        "[ConversationPerf][typewriter] ticks=\(tickCount) | shown=\(displayText.count) | target=\(targetText.count) | lastTickMs=\(String(format: "%.1f", tickIntervalMs)) | avgTickMs=\(String(format: "%.1f", avgTickMs))"
+                    )
+                }
             } else if streamEnded {
                 updateDisplay(safeDisplayText(targetText, isFinal: true))
+                if AppConfig.enablephaseLogs {
+                    let avgTickMs = tickCount > 1
+                        ? totalTickIntervalMs / Double(tickCount - 1)
+                        : 0
+                    print(
+                        "[ConversationPerf][typewriter] done | ticks=\(tickCount) | len=\(targetText.count) | avgTickMs=\(String(format: "%.1f", avgTickMs)) | maxTickMs=\(String(format: "%.1f", maxTickIntervalMs))"
+                    )
+                }
                 onFinish()
                 task = nil
                 return
@@ -424,7 +883,7 @@ private extension ChatTypewriter {
         let targetCount = target.count
         guard current < targetCount else { return current }
 
-        let ranges = tableRanges(in: target)
+        let ranges = currentTableRanges(for: target)
         if let table = ranges.first(where: { current >= $0.start && current < $0.end }) {
             return min(table.end, targetCount)
         }
@@ -536,6 +995,14 @@ private extension ChatTypewriter {
             index += 1
         }
         return ranges
+    }
+
+    func currentTableRanges(for text: String) -> [(start: Int, end: Int)] {
+        if isTableRangesDirty {
+            cachedTableRanges = tableRanges(in: text)
+            isTableRangesDirty = false
+        }
+        return cachedTableRanges
     }
 
     func lineRanges(in text: String) -> [(start: Int, end: Int, content: Substring)] {

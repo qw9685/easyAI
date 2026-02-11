@@ -6,8 +6,8 @@
 //  主要功能：
 //  - Markdown HTML/数学块渲染视图（WKWebView + KaTeX）
 //
-//
 
+import Foundation
 import UIKit
 import WebKit
 import SnapKit
@@ -51,17 +51,19 @@ final class MarkdownHTMLBlockView: UIView, MarkdownBlockView, WKNavigationDelega
     }
 
     func update(block: MarkdownBlock, style: MarkdownStyle) {
+        let renderResult: (html: String, allowJavaScript: Bool)
         switch block.kind {
         case .html(let raw):
-            pendingHTML = htmlWrapper(bodyHTML: raw, useKatex: false)
+            renderResult = (htmlWrapper(bodyHTML: sanitizeHTMLBody(raw), useKatex: false), false)
         case .math(let latex):
-            pendingHTML = htmlWrapper(bodyHTML: latexBody(for: latex), useKatex: true)
+            renderResult = (htmlWrapper(bodyHTML: latexBody(for: latex), useKatex: true), true)
         default:
             return
         }
-        if let pendingHTML {
-            webView.loadHTMLString(pendingHTML, baseURL: nil)
-        }
+
+        pendingHTML = renderResult.html
+        webView.configuration.defaultWebpagePreferences.allowsContentJavaScript = renderResult.allowJavaScript
+        webView.loadHTMLString(renderResult.html, baseURL: nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -85,9 +87,21 @@ final class MarkdownHTMLBlockView: UIView, MarkdownBlockView, WKNavigationDelega
     ) {
         if navigationAction.navigationType == .linkActivated,
            let url = navigationAction.request.url {
-            onOpenURL?(url)
+            let scheme = url.scheme?.lowercased()
+            if scheme == "http" || scheme == "https" {
+                onOpenURL?(url)
+            }
             decisionHandler(.cancel)
             return
+        }
+
+        if let url = navigationAction.request.url,
+           let scheme = url.scheme?.lowercased() {
+            let allowedSchemes: Set<String> = ["about", "http", "https", "data"]
+            if !allowedSchemes.contains(scheme) {
+                decisionHandler(.cancel)
+                return
+            }
         }
         decisionHandler(.allow)
     }
@@ -141,5 +155,23 @@ private extension MarkdownHTMLBlockView {
             .replacingOccurrences(of: ">", with: "&gt;")
         escaped = escaped.replacingOccurrences(of: "\n", with: "\n")
         return escaped
+    }
+
+    func sanitizeHTMLBody(_ raw: String) -> String {
+        var sanitized = raw
+        sanitized = replacingRegex(in: sanitized, pattern: "(?is)<script\\b[^>]*>.*?</script>", with: "")
+        sanitized = replacingRegex(in: sanitized, pattern: "(?is)<(iframe|object|embed|base|form)\\b[^>]*>.*?</\\1>", with: "")
+        sanitized = replacingRegex(in: sanitized, pattern: "(?is)<(iframe|object|embed|base|form)\\b[^>]*/?>", with: "")
+        sanitized = replacingRegex(in: sanitized, pattern: "(?is)\\son\\w+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)", with: "")
+        sanitized = replacingRegex(in: sanitized, pattern: "(?i)javascript\\s*:", with: "")
+        return sanitized
+    }
+
+    func replacingRegex(in text: String, pattern: String, with replacement: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
     }
 }

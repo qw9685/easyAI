@@ -25,7 +25,6 @@ final class ChatListViewModel {
     private var lastConversationId: String?
     private(set) var isUserAtBottom: Bool = true
     var autoScrollThreshold: CGFloat = 80
-    var stateThrottleMilliseconds: Int = 80
 
     init(stateBuilder: ChatListStateBuilding = ChatListStateBuilder()) {
         self.stateBuilder = stateBuilder
@@ -56,36 +55,8 @@ final class ChatListViewModel {
             .scan((prev: ChatListSnapshot?.none, curr: ChatListSnapshot?.none)) { acc, new in
                 (prev: acc.curr, curr: new)
             }
-            .compactMap { pair -> (prev: ChatListSnapshot?, curr: ChatListSnapshot)? in
-                guard let curr = pair.curr else { return nil }
-                return (prev: pair.prev, curr: curr)
-            }
-            .flatMapLatest { [weak self] pair -> Observable<ChatListSnapshot> in
-                guard let self else { return .just(pair.curr) }
-                if pair.prev?.conversationId != pair.curr.conversationId {
-                    // 会话切换时不节流，避免短暂显示上一个会话
-                    return .just(pair.curr)
-                }
-                if pair.prev?.isLoading != pair.curr.isLoading {
-                    // loading 状态变化需要立即刷新，避免短暂覆盖/滞后
-                    return .just(pair.curr)
-                }
-                if let prevLast = pair.prev?.messages.last,
-                   let currLast = pair.curr.messages.last,
-                   prevLast.isStreaming != currLast.isStreaming {
-                    // 流式结束/开始需要立即刷新，避免 loading 闪现
-                    return .just(pair.curr)
-                }
-                if AppConfig.enableTypewriter,
-                   let prevLast = pair.prev?.messages.last,
-                   let currLast = pair.curr.messages.last,
-                   prevLast.isStreaming,
-                   currLast.isStreaming,
-                   prevLast.content != currLast.content {
-                    // 打字机期间需要更高刷新频率，避免节流导致的“卡住后一次性显示”
-                    return .just(pair.curr)
-                }
-                return .just(pair.curr)
+            .compactMap { pair -> ChatListSnapshot? in
+                pair.curr
             }
             .distinctUntilChanged { [weak self] lhs, rhs in
                 self?.isSnapshotEqual(lhs, rhs) ?? false
