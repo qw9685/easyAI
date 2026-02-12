@@ -11,6 +11,11 @@
 import UIKit
 
 final class LinkLabel: UILabel {
+    private struct LinkEntry {
+        let range: NSRange
+        let url: URL
+    }
+
     var onOpenURL: ((URL) -> Void)?
 
     private let layoutManager = NSLayoutManager()
@@ -100,25 +105,61 @@ final class LinkLabel: UILabel {
         guard locationInText.x >= 0, locationInText.y >= 0 else { return }
 
         layoutManager.ensureLayout(for: textContainer)
-        let glyphIndex = layoutManager.glyphIndex(for: locationInText, in: textContainer)
-        guard glyphIndex < layoutManager.numberOfGlyphs else { return }
-        let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
-        guard glyphRect.contains(locationInText) else { return }
-
-        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        guard characterIndex < storage.length else { return }
-
-        if let url = storage.attribute(.link, at: characterIndex, effectiveRange: nil) as? URL {
-            if let safeURL = normalizedWebURL(from: url) {
-                onOpenURL?(safeURL)
+        for entry in linkEntries(in: storage) {
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: entry.range,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.length > 0 else { continue }
+            let hitRect = layoutManager
+                .boundingRect(forGlyphRange: glyphRange, in: textContainer)
+                .insetBy(dx: -4, dy: -4)
+            if hitRect.contains(locationInText) {
+                onOpenURL?(entry.url)
+                return
             }
+        }
+
+        var fraction: CGFloat = 0
+        let charIndex = layoutManager.characterIndex(
+            for: locationInText,
+            in: textContainer,
+            fractionOfDistanceBetweenInsertionPoints: &fraction
+        )
+        guard charIndex < storage.length else { return }
+
+        if let entry = linkEntry(at: charIndex, in: storage) {
+            onOpenURL?(entry.url)
             return
         }
-        if let str = storage.attribute(.link, at: characterIndex, effectiveRange: nil) as? String,
+    }
+
+    private func linkEntries(in storage: NSTextStorage) -> [LinkEntry] {
+        let fullRange = NSRange(location: 0, length: storage.length)
+        guard fullRange.length > 0 else { return [] }
+
+        var entries: [LinkEntry] = []
+        storage.enumerateAttribute(.link, in: fullRange, options: []) { value, range, _ in
+            guard let entry = makeLinkEntry(value: value, range: range) else { return }
+            entries.append(entry)
+        }
+        return entries
+    }
+
+    private func linkEntry(at index: Int, in storage: NSTextStorage) -> LinkEntry? {
+        let value = storage.attribute(.link, at: index, effectiveRange: nil)
+        return makeLinkEntry(value: value, range: NSRange(location: index, length: 1))
+    }
+
+    private func makeLinkEntry(value: Any?, range: NSRange) -> LinkEntry? {
+        if let url = value as? URL, let safeURL = normalizedWebURL(from: url) {
+            return LinkEntry(range: range, url: safeURL)
+        }
+        if let str = value as? String,
            let url = URL(string: str),
            let safeURL = normalizedWebURL(from: url) {
-            onOpenURL?(safeURL)
-            return
+            return LinkEntry(range: range, url: safeURL)
         }
+        return nil
     }
 }
