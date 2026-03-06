@@ -134,6 +134,10 @@ final class ChatViewModelSwiftUIAdapter: ObservableObject {
         await viewModel.loadModels(forceRefresh: forceRefresh)
     }
 
+    func searchConversationTitles(query: String) -> [String: ConversationSearchMatch] {
+        conversationSearchUseCase.searchTitleMatches(query: query, conversations: conversations)
+    }
+
     func searchConversations(query: String) async -> [String: ConversationSearchMatch] {
         await conversationSearchUseCase.search(query: query, conversations: conversations)
     }

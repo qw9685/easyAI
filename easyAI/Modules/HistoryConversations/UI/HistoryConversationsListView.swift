@@ -23,6 +23,7 @@ struct HistoryConversationsListView: View {
     @State private var searchResults: [String: ConversationSearchMatch] = [:]
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearching: Bool = false
+    @State private var hasCompletedSearch: Bool = false
 
     init(isEmbeddedInPager: Bool = false) {
         self.isEmbeddedInPager = isEmbeddedInPager
@@ -130,6 +131,7 @@ struct HistoryConversationsListView: View {
             searchTask?.cancel()
             searchTask = nil
             isSearching = false
+            hasCompletedSearch = false
         }
         .onChange(of: searchText) { newValue in
             scheduleSearch(newValue)
@@ -161,7 +163,13 @@ struct HistoryConversationsListView: View {
     private var filteredConversations: [ConversationRecord] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return viewModel.conversations }
-        return viewModel.conversations.filter { searchResults[$0.id] != nil }
+
+        let matchedConversations = viewModel.conversations.filter { searchResults[$0.id] != nil }
+        if !matchedConversations.isEmpty {
+            return matchedConversations
+        }
+
+        return hasCompletedSearch ? [] : viewModel.conversations
     }
 
     private var searchBar: some View {
@@ -186,7 +194,7 @@ struct HistoryConversationsListView: View {
 
     @ViewBuilder
     private var emptyStateView: some View {
-        if isSearching && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredConversations.isEmpty {
+        if hasCompletedSearch && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredConversations.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 40))
@@ -222,13 +230,12 @@ struct HistoryConversationsListView: View {
             clearSearch()
             return
         }
+
         isSearching = true
+        hasCompletedSearch = false
+        searchResults = viewModel.searchConversationTitles(query: trimmed)
+
         searchTask = Task {
-            do {
-                try await Task.sleep(nanoseconds: 250_000_000)
-            } catch {
-                return
-            }
             guard !Task.isCancelled else { return }
             await performSearch(query: trimmed)
         }
@@ -241,6 +248,7 @@ struct HistoryConversationsListView: View {
         guard !Task.isCancelled else { return }
         await MainActor.run {
             searchResults = results
+            hasCompletedSearch = true
         }
     }
 
@@ -248,6 +256,7 @@ struct HistoryConversationsListView: View {
         searchText = ""
         searchResults = [:]
         isSearching = false
+        hasCompletedSearch = false
     }
 }
 

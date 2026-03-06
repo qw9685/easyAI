@@ -135,6 +135,22 @@ enum ModelDecisionKit {
         budgetMode: FallbackBudgetMode,
         requiresMultimodal: Bool
     ) -> [AIModel] {
+        func promptPlusCompletionCost(_ model: AIModel) -> Double {
+            let unknownCost = Double.greatestFiniteMagnitude / 4
+            let prompt = DataTools.ValueParser.decimal(from: model.pricing?.prompt) ?? unknownCost
+            let completion = DataTools.ValueParser.decimal(from: model.pricing?.completion) ?? unknownCost
+            return prompt + completion
+        }
+
+        func compareCost(_ lhs: AIModel, _ rhs: AIModel) -> Bool {
+            let lhsCost = promptPlusCompletionCost(lhs)
+            let rhsCost = promptPlusCompletionCost(rhs)
+            if lhsCost != rhsCost {
+                return lhsCost < rhsCost
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+
         let filtered = availableModels.filter { model in
             guard model.id != currentModel.id else { return false }
             if requiresMultimodal {
@@ -237,22 +253,6 @@ enum ModelDecisionKit {
             return 16
         }
         return 8
-    }
-
-    private static func compareCost(_ lhs: AIModel, _ rhs: AIModel) -> Bool {
-        let lhsCost = promptPlusCompletionCost(lhs)
-        let rhsCost = promptPlusCompletionCost(rhs)
-        if lhsCost != rhsCost {
-            return lhsCost < rhsCost
-        }
-        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-    }
-
-    private static func promptPlusCompletionCost(_ model: AIModel) -> Double {
-        let unknownCost = Double.greatestFiniteMagnitude / 4
-        let prompt = DataTools.ValueParser.decimal(from: model.pricing?.prompt) ?? unknownCost
-        let completion = DataTools.ValueParser.decimal(from: model.pricing?.completion) ?? unknownCost
-        return prompt + completion
     }
 
     private static func fallbackQualityScore(model: AIModel) -> Int {

@@ -17,13 +17,17 @@ enum WCDBTables {
     static let modelCache = "model_cache"
 }
 
+protocol WCDBTransactionRunning {
+    func runTransaction<T>(_ work: () throws -> T) throws -> T
+}
+
 /// WCDB 入口（创建 DB + 初始化表结构/索引）
-final class WCDBManager {
+final class WCDBManager: WCDBTransactionRunning {
     static let shared = WCDBManager()
 
     let database: Database
     private let versionKey = "WCDB.schema.version"
-    private let latestVersion = 4
+    private let latestVersion = 5
 
     private init() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -37,8 +41,10 @@ final class WCDBManager {
     /// - v2: model_cache 表 + 索引
     /// - v3: message 指标列（token/耗时/费用）
     /// - v4: message 路由元数据列（smart routing）
+    /// - v5: 旧消息主键迁移为稳定 UUID
     private func setupSchema() {
         do {
+            let storedVersion = UserDefaults.standard.integer(forKey: versionKey)
             var conversationExists = try database.isTableExists(WCDBTables.conversation)
             var messageExists = try database.isTableExists(WCDBTables.message)
             var modelCacheExists = try database.isTableExists(WCDBTables.modelCache)
@@ -62,6 +68,9 @@ final class WCDBManager {
                 try createMessageConversationTimeIndexIfNeeded()
                 try addMessageMetricsColumnsIfNeeded()
                 try addMessageRoutingColumnsIfNeeded()
+                if storedVersion < 5 {
+                    try migrateLegacyMessageIDsIfNeeded()
+                }
             }
 
             if conversationExists {
@@ -77,6 +86,22 @@ final class WCDBManager {
             }
         } catch {
             RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to setup schema: \(error)")
+        }
+    }
+
+    func runTransaction<T>(_ work: () throws -> T) throws -> T {
+        if database.isInTransaction {
+            return try work()
+        }
+
+        try database.begin()
+        do {
+            let result = try work()
+            try database.commit()
+            return result
+        } catch {
+            try? database.rollback()
+            throw error
         }
     }
 
@@ -164,6 +189,65 @@ final class WCDBManager {
                 RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to add column \(column.name): \(error)")
             }
         }
+    }
+
+    private func migrateLegacyMessageIDsIfNeeded() throws {
+        let records: [MessageRecord] = try database.getObjects(fromTable: WCDBTables.message)
+        let legacyRecords = records.filter { UUID(uuidString: $0.id) == nil }
+        guard !legacyRecords.isEmpty else { return }
+
+        try runTransaction {
+            var occupiedIDs = Set(records.compactMap { record in
+                UUID(uuidString: record.id) == nil ? nil : record.id
+            })
+
+            for record in legacyRecords {
+                guard let migratedID = resolvedMigratedMessageID(for: record, occupiedIDs: &occupiedIDs) else {
+                    RuntimeTools.AppDiagnostics.warn(
+                        "WCDBManager",
+                        "Skipped legacy message id migration for rawID=\(record.id)"
+                    )
+                    continue
+                }
+
+                try database.update(
+                    table: WCDBTables.message,
+                    on: [MessageRecord.Properties.id],
+                    with: [migratedID],
+                    where: MessageRecord.Properties.id == record.id
+                )
+            }
+        }
+    }
+
+    private func resolvedMigratedMessageID(
+        for record: MessageRecord,
+        occupiedIDs: inout Set<String>
+    ) -> String? {
+        let preferredID = MessageRecord.stableFallbackUUIDString(
+            rawID: record.id,
+            conversationId: record.conversationId,
+            role: record.role,
+            timestamp: record.timestamp
+        )
+        if !occupiedIDs.contains(preferredID) {
+            occupiedIDs.insert(preferredID)
+            return preferredID
+        }
+
+        let fallbackID = MessageRecord.legacyStableFallbackUUIDString(
+            rawID: record.id,
+            conversationId: record.conversationId,
+            role: record.role,
+            timestamp: record.timestamp,
+            content: record.content
+        )
+        if !occupiedIDs.contains(fallbackID) {
+            occupiedIDs.insert(fallbackID)
+            return fallbackID
+        }
+
+        return nil
     }
 
     private func isSchemaAlreadyExistsError(_ error: Error) -> Bool {

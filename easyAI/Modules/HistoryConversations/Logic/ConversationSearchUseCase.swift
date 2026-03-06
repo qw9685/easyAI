@@ -14,6 +14,8 @@ protocol ConversationMessageSearchProviding {
     func searchFirstMatchingMessages(query: String, conversationIds: [String]) throws -> [ConversationMessageSearchHit]
 }
 
+extension MessageRepository: ConversationMessageSearchProviding {}
+
 final class ConversationSearchUseCase {
     private let messageSearchProvider: ConversationMessageSearchProviding
     private let snippetContextLength: Int
@@ -26,6 +28,17 @@ final class ConversationSearchUseCase {
         self.snippetContextLength = snippetContextLength
     }
 
+    func searchTitleMatches(
+        query: String,
+        conversations: [ConversationRecord]
+    ) -> [String: ConversationSearchMatch] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty, !conversations.isEmpty else {
+            return [:]
+        }
+        return makeTitleMatches(query: trimmedQuery, conversations: conversations)
+    }
+
     func search(
         query: String,
         conversations: [ConversationRecord]
@@ -35,23 +48,13 @@ final class ConversationSearchUseCase {
             return [:]
         }
 
-        var results: [String: ConversationSearchMatch] = [:]
-        let titleMatchedConversationIDs = conversations.compactMap { conversation -> String? in
-            let titleRanges = findHighlightRanges(in: conversation.title, query: trimmedQuery)
-            guard !titleRanges.isEmpty else { return nil }
-            results[conversation.id] = ConversationSearchMatch(
-                titleRanges: titleRanges,
-                snippet: nil,
-                snippetRanges: []
-            )
-            return conversation.id
-        }
+        var results = makeTitleMatches(query: trimmedQuery, conversations: conversations)
 
         if Task.isCancelled {
             return results
         }
 
-        let titleMatchedSet = Set(titleMatchedConversationIDs)
+        let titleMatchedSet = Set(results.keys)
         let remainingConversationIDs = conversations.compactMap { conversation in
             titleMatchedSet.contains(conversation.id) ? nil : conversation.id
         }
@@ -140,6 +143,23 @@ final class ConversationSearchUseCase {
         )
 
         return (snippet, [snippetHighlight])
+    }
+
+    private func makeTitleMatches(
+        query: String,
+        conversations: [ConversationRecord]
+    ) -> [String: ConversationSearchMatch] {
+        var results: [String: ConversationSearchMatch] = [:]
+        for conversation in conversations {
+            let titleRanges = findHighlightRanges(in: conversation.title, query: query)
+            guard !titleRanges.isEmpty else { continue }
+            results[conversation.id] = ConversationSearchMatch(
+                titleRanges: titleRanges,
+                snippet: nil,
+                snippetRanges: []
+            )
+        }
+        return results
     }
 
     private func makeHighlightRange(

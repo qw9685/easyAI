@@ -17,9 +17,11 @@ struct AppConfig {
 
     static var apiKey: String {
         let storedKey = SecretsStore.shared.apiKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if !storedKey.isEmpty {
             return storedKey
         }
-        return Bundle.main.object(forInfoDictionaryKey: infoPlistAPIKey) as? String ?? ""
+        return (Bundle.main.object(forInfoDictionaryKey: infoPlistAPIKey) as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

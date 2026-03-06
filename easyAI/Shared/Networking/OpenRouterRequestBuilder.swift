@@ -12,7 +12,7 @@ import Foundation
 struct OpenRouterRequestBuilder {
     func makeChatRequest(messages: [Message], model: String, fallbackModelIDs: [String], stream: Bool) throws -> URLRequest {
         let runtime = OpenRouterRuntimeConfig.current()
-        let apiKey = runtime.apiKey
+        let apiKey = runtime.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty && apiKey != "YOUR_OPENAI_API_KEY_HERE" else {
             throw OpenRouterError.missingAPIKey
         }
@@ -86,7 +86,7 @@ struct OpenRouterRequestBuilder {
 
     func makeModelsRequest() throws -> URLRequest {
         let runtime = OpenRouterRuntimeConfig.current()
-        let apiKey = runtime.apiKey
+        let apiKey = runtime.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty && apiKey != "YOUR_OPENAI_API_KEY_HERE" else {
             throw OpenRouterError.missingAPIKey
         }

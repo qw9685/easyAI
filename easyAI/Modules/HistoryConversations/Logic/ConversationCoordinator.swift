@@ -13,13 +13,16 @@ import Foundation
 final class ConversationCoordinator {
     private let conversationRepository: ConversationRepository
     private let messageRepository: MessageRepository
+    private let transactionRunner: WCDBTransactionRunning
 
     init(
         conversationRepository: ConversationRepository,
-        messageRepository: MessageRepository
+        messageRepository: MessageRepository,
+        transactionRunner: WCDBTransactionRunning = WCDBManager.shared
     ) {
         self.conversationRepository = conversationRepository
         self.messageRepository = messageRepository
+        self.transactionRunner = transactionRunner
     }
 
     func fetchAllConversations() throws -> [ConversationRecord] {
@@ -43,8 +46,10 @@ final class ConversationCoordinator {
     }
 
     func deleteConversationAndMessages(id: String) throws {
-        try messageRepository.deleteMessages(conversationId: id)
-        try conversationRepository.deleteConversation(id: id)
+        try transactionRunner.runTransaction {
+            try messageRepository.deleteMessages(conversationId: id)
+            try conversationRepository.deleteConversation(id: id)
+        }
     }
 
     func deleteMessage(id: String) throws {

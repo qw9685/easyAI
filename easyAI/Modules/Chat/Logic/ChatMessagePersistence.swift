@@ -13,46 +13,56 @@ import Foundation
 final class ChatMessagePersistence {
     private let conversationRepository: ConversationRepository
     private let messageRepository: MessageRepository
+    private let transactionRunner: WCDBTransactionRunning
     private let persistenceQueue = DispatchQueue(label: "easyai.chat.persistence", qos: .userInitiated)
 
     init(
         conversationRepository: ConversationRepository,
-        messageRepository: MessageRepository
+        messageRepository: MessageRepository,
+        transactionRunner: WCDBTransactionRunning = WCDBManager.shared
     ) {
         self.conversationRepository = conversationRepository
         self.messageRepository = messageRepository
+        self.transactionRunner = transactionRunner
     }
 
     func persistNewMessage(_ message: Message, conversationId: String) async throws -> String? {
         try await runDatabaseTask {
-            try self.messageRepository.insertMessage(message, conversationId: conversationId)
+            try self.transactionRunner.runTransaction {
+                try self.messageRepository.insertMessage(message, conversationId: conversationId)
 
-            if message.role == .user,
-               let newTitle = try? self.makeTitleIfNeeded(conversationId: conversationId, content: message.content) {
-                do {
-                    try self.conversationRepository.renameConversation(id: conversationId, title: newTitle)
-                    return newTitle
-                } catch {
-                    RuntimeTools.AppDiagnostics.warn("ChatMessagePersistence", "Failed to rename conversation title: \(error)")
+                if message.role == .user,
+                   let newTitle = try? self.makeTitleIfNeeded(conversationId: conversationId, content: message.content) {
+                    do {
+                        try self.conversationRepository.renameConversation(id: conversationId, title: newTitle)
+                        try self.conversationRepository.touch(id: conversationId)
+                        return newTitle
+                    } catch {
+                        RuntimeTools.AppDiagnostics.warn("ChatMessagePersistence", "Failed to rename conversation title: \(error)")
+                    }
                 }
-            }
 
-            try self.conversationRepository.touch(id: conversationId)
-            return nil
+                try self.conversationRepository.touch(id: conversationId)
+                return nil
+            }
         }
     }
 
     func updateMessage(_ message: Message, conversationId: String) async throws {
         try await runDatabaseTask {
-            try self.messageRepository.updateMessage(message, conversationId: conversationId)
-            try self.conversationRepository.touch(id: conversationId)
+            try self.transactionRunner.runTransaction {
+                try self.messageRepository.updateMessage(message, conversationId: conversationId)
+                try self.conversationRepository.touch(id: conversationId)
+            }
         }
     }
 
     func resetAll() async throws {
         try await runDatabaseTask {
-            try self.messageRepository.deleteAll()
-            try self.conversationRepository.deleteAll()
+            try self.transactionRunner.runTransaction {
+                try self.messageRepository.deleteAll()
+                try self.conversationRepository.deleteAll()
+            }
         }
     }
 

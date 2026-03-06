@@ -135,55 +135,10 @@ final class MessageRepository {
     }
 
     func deleteMessage(id: String) throws {
-        let existing: MessageRecord? = try database.getObject(
+        try database.delete(
             fromTable: WCDBTables.message,
             where: MessageRecord.Properties.id == id
         )
-
-        if existing != nil {
-            try database.delete(
-                fromTable: WCDBTables.message,
-                where: MessageRecord.Properties.id == id
-            )
-            return
-        }
-
-        try deleteLegacyMessageIfNeeded(stableFallbackID: id)
-    }
-
-    private func deleteLegacyMessageIfNeeded(stableFallbackID: String) throws {
-        let records: [MessageRecord] = try database.getObjects(fromTable: WCDBTables.message)
-        let legacyIDs = records.compactMap { record -> String? in
-            guard UUID(uuidString: record.id) == nil else {
-                return nil
-            }
-            let fallbackID = MessageRecord.stableFallbackUUIDString(
-                rawID: record.id,
-                conversationId: record.conversationId,
-                role: record.role,
-                timestamp: record.timestamp
-            )
-            if fallbackID == stableFallbackID {
-                return record.id
-            }
-            let legacyFallbackID = MessageRecord.legacyStableFallbackUUIDString(
-                rawID: record.id,
-                conversationId: record.conversationId,
-                role: record.role,
-                timestamp: record.timestamp,
-                content: record.content
-            )
-            return legacyFallbackID == stableFallbackID ? record.id : nil
-        }
-
-        guard !legacyIDs.isEmpty else { return }
-
-        for rawID in legacyIDs {
-            try database.delete(
-                fromTable: WCDBTables.message,
-                where: MessageRecord.Properties.id == rawID
-            )
-        }
     }
 
     func deleteAll() throws {
