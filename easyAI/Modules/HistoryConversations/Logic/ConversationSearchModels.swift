@@ -9,7 +9,7 @@
 
 import Foundation
 
-struct TextHighlightRange: Equatable {
+nonisolated struct TextHighlightRange: Equatable, Sendable {
     let start: Int
     let length: Int
 
@@ -18,7 +18,7 @@ struct TextHighlightRange: Equatable {
     }
 }
 
-enum ConversationSearchMatchKind: Int, Equatable {
+nonisolated enum ConversationSearchMatchKind: Int, Equatable, Sendable {
     case titleExact = 1000
     case titlePrefix = 900
     case titleLiteral = 850
@@ -35,7 +35,7 @@ enum ConversationSearchMatchKind: Int, Equatable {
     }
 }
 
-struct ConversationSearchMatch: Equatable {
+nonisolated struct ConversationSearchMatch: Equatable, Sendable {
     let kind: ConversationSearchMatchKind
     let titleRanges: [TextHighlightRange]
     let snippet: String?
@@ -46,7 +46,7 @@ struct ConversationSearchMatch: Equatable {
     }
 }
 
-enum ConversationSearchRanking {
+nonisolated enum ConversationSearchRanking {
     static func sort(
         conversations: [ConversationRecord],
         matches: [String: ConversationSearchMatch]

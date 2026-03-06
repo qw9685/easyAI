@@ -1,6 +1,7 @@
 import XCTest
 @testable import easyAI
 
+@MainActor
 final class ChatTurnRunnerTests: XCTestCase {
 
     func testRunStreamThrowsInvalidResponseWhenNoContentReturned() async {

@@ -13,7 +13,7 @@
 import Foundation
 import CoreFoundation
 
-enum ConversationSearchKit {
+nonisolated enum ConversationSearchKit {
     static func trimmedQuery(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -119,12 +119,12 @@ enum ConversationSearchKit {
     }
 }
 
-enum ConversationSearchPhoneticMatchKind: Equatable {
+nonisolated enum ConversationSearchPhoneticMatchKind: Equatable, Sendable {
     case full
     case initials
 }
 
-struct ConversationSearchPhoneticForms: Equatable {
+nonisolated struct ConversationSearchPhoneticForms: Equatable, Sendable {
     let spaced: String
     let joined: String
     let initials: String

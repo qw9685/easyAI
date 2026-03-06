@@ -9,7 +9,7 @@
 
 import Foundation
 
-struct ConversationMessageSearchHit: Equatable {
+nonisolated struct ConversationMessageSearchHit: Equatable, Sendable {
     let conversationId: String
     let messageId: String
     let content: String

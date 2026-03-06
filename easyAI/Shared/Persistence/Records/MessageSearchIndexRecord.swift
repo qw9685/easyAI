@@ -12,7 +12,7 @@
 import Foundation
 import WCDBSwift
 
-struct MessageSearchIndexRecord: TableCodable {
+nonisolated struct MessageSearchIndexRecord: TableCodable {
     var messageId: String
     var conversationId: String
     var sortTimestamp: Double

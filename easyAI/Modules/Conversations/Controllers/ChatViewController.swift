@@ -252,6 +252,7 @@ final class ChatViewController: UIViewController {
 
     
     private func loadModelsIfNeeded() {
+        guard !RuntimeTools.AppRuntime.isRunningTests else { return }
         if viewModel.availableModels.isEmpty {
             actionRelay.accept(.loadModels(forceRefresh: false))
         }

@@ -10,13 +10,13 @@
 
 import Foundation
 
-protocol ConversationMessageSearchProviding {
+nonisolated protocol ConversationMessageSearchProviding {
     func searchFirstMatchingMessages(query: String, conversationIds: [String]) throws -> [ConversationMessageSearchHit]
 }
 
 extension MessageRepository: ConversationMessageSearchProviding {}
 
-struct ConversationSearchUseCase {
+nonisolated struct ConversationSearchUseCase {
     private let messageSearchProvider: ConversationMessageSearchProviding
     private let snippetContextLength: Int
     private let snippetDefaultLength: Int
