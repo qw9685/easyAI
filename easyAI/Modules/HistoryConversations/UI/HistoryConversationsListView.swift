@@ -24,6 +24,7 @@ struct HistoryConversationsListView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearching: Bool = false
     @State private var hasCompletedSearch: Bool = false
+    @State private var searchGeneration: Int = 0
 
     init(isEmbeddedInPager: Bool = false) {
         self.isEmbeddedInPager = isEmbeddedInPager
@@ -132,6 +133,7 @@ struct HistoryConversationsListView: View {
             searchTask = nil
             isSearching = false
             hasCompletedSearch = false
+            searchGeneration += 1
         }
         .onChange(of: searchText) { newValue in
             scheduleSearch(newValue)
@@ -161,7 +163,7 @@ struct HistoryConversationsListView: View {
     }
 
     private var filteredConversations: [ConversationRecord] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = trimmedSearchText
         guard !trimmed.isEmpty else { return viewModel.conversations }
 
         let matchedConversations = viewModel.conversations.filter { searchResults[$0.id] != nil }
@@ -223,6 +225,10 @@ struct HistoryConversationsListView: View {
         }
     }
 
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func scheduleSearch(_ query: String) {
         searchTask?.cancel()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -231,28 +237,37 @@ struct HistoryConversationsListView: View {
             return
         }
 
+        searchGeneration += 1
+        let currentGeneration = searchGeneration
         isSearching = true
         hasCompletedSearch = false
         searchResults = viewModel.searchConversationTitles(query: trimmed)
 
         searchTask = Task {
             guard !Task.isCancelled else { return }
-            await performSearch(query: trimmed)
+            await performSearch(query: trimmed, generation: currentGeneration)
         }
     }
 
-    private func performSearch(query: String) async {
+    private func performSearch(query: String, generation: Int) async {
         guard !Task.isCancelled else { return }
         let results = await viewModel.searchConversations(query: query)
 
         guard !Task.isCancelled else { return }
         await MainActor.run {
+            guard generation == searchGeneration,
+                  query == trimmedSearchText else {
+                return
+            }
             searchResults = results
             hasCompletedSearch = true
         }
     }
 
     private func clearSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        searchGeneration += 1
         searchText = ""
         searchResults = [:]
         isSearching = false

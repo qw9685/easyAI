@@ -24,6 +24,7 @@ final class MessageRepository {
     func insertMessage(_ message: Message, conversationId: String) throws {
         let record = MessageRecord.fromMessage(message, conversationId: conversationId)
         try database.insert(record, intoTable: WCDBTables.message)
+        try upsertMessageSearchIndex(record)
     }
 
     func updateMessage(_ message: Message, conversationId: String) throws {
@@ -66,6 +67,7 @@ final class MessageRepository {
             ],
             where: MessageRecord.Properties.id == record.id
         )
+        try upsertMessageSearchIndex(record)
     }
 
     func fetchMessages(conversationId: String, limit: Int? = nil, offset: Int? = nil) throws -> [Message] {
@@ -101,7 +103,87 @@ final class MessageRepository {
             return []
         }
 
-        let escapedQuery = Self.escapeLikePattern(trimmedQuery.lowercased())
+        var hitsByConversation: [String: ConversationMessageSearchHit] = [:]
+
+        do {
+            try appendIndexedHits(
+                to: &hitsByConversation,
+                query: trimmedQuery,
+                conversationIds: conversationIds
+            )
+        } catch {
+            RuntimeTools.AppDiagnostics.warn(
+                "MessageRepository",
+                "FTS search failed, fallback to LIKE: \(error)"
+            )
+        }
+
+        let remainingConversationIds = conversationIds.filter { hitsByConversation[$0] == nil }
+        if !remainingConversationIds.isEmpty {
+            try appendFallbackHits(
+                to: &hitsByConversation,
+                query: trimmedQuery,
+                conversationIds: remainingConversationIds,
+                expectedConversationCount: conversationIds.count
+            )
+        }
+
+        return conversationIds.compactMap { hitsByConversation[$0] }
+    }
+
+    func deleteMessages(conversationId: String) throws {
+        try database.delete(
+            fromTable: WCDBTables.messageSearchIndex,
+            where: MessageSearchIndexRecord.Properties.conversationId == conversationId
+        )
+        try database.delete(
+            fromTable: WCDBTables.message,
+            where: MessageRecord.Properties.conversationId == conversationId
+        )
+    }
+
+    func deleteMessage(id: String) throws {
+        try deleteMessageSearchIndex(messageId: id)
+        try database.delete(
+            fromTable: WCDBTables.message,
+            where: MessageRecord.Properties.id == id
+        )
+    }
+
+    func deleteAll() throws {
+        try database.delete(fromTable: WCDBTables.messageSearchIndex)
+        try database.delete(fromTable: WCDBTables.message)
+    }
+
+    private func appendIndexedHits(
+        to hitsByConversation: inout [String: ConversationMessageSearchHit],
+        query: String,
+        conversationIds: [String]
+    ) throws {
+        guard let ftsQuery = Self.makeFTSMatchQuery(query) else {
+            return
+        }
+
+        let records: [MessageSearchIndexRecord] = try database.getObjects(
+            fromTable: WCDBTables.messageSearchIndex,
+            where: MessageSearchIndexRecord.Properties.conversationId.in(conversationIds)
+                && MessageSearchIndexRecord.Properties.content.match(ftsQuery),
+            orderBy: [
+                MessageSearchIndexRecord.Properties.sortTimestamp.order(.descending),
+                MessageSearchIndexRecord.Properties.messageId.order(.descending)
+            ]
+        )
+
+        appendIndexedRecords(records, to: &hitsByConversation, expectedConversationCount: conversationIds.count)
+    }
+
+    private func appendFallbackHits(
+        to hitsByConversation: inout [String: ConversationMessageSearchHit],
+        query: String,
+        conversationIds: [String],
+        expectedConversationCount: Int
+    ) throws {
+        let escapedQuery = Self.escapeLikePattern(query.lowercased())
         let records: [MessageRecord] = try database.getObjects(
             fromTable: WCDBTables.message,
             where: MessageRecord.Properties.conversationId.in(conversationIds)
@@ -112,7 +194,6 @@ final class MessageRepository {
             ]
         )
 
-        var hitsByConversation: [String: ConversationMessageSearchHit] = [:]
         for record in records {
             guard hitsByConversation[record.conversationId] == nil else { continue }
             hitsByConversation[record.conversationId] = ConversationMessageSearchHit(
@@ -121,28 +202,67 @@ final class MessageRepository {
                 content: record.content,
                 timestamp: record.timestamp
             )
-            if hitsByConversation.count == conversationIds.count {
+            if hitsByConversation.count == expectedConversationCount {
                 break
             }
         }
-
-        return conversationIds.compactMap { hitsByConversation[$0] }
     }
 
-    func deleteMessages(conversationId: String) throws {
-        try database.delete(fromTable: WCDBTables.message,
-                            where: MessageRecord.Properties.conversationId == conversationId)
+    private func appendIndexedRecords(
+        _ records: [MessageSearchIndexRecord],
+        to hitsByConversation: inout [String: ConversationMessageSearchHit],
+        expectedConversationCount: Int
+    ) {
+        for record in records {
+            guard hitsByConversation[record.conversationId] == nil else { continue }
+            hitsByConversation[record.conversationId] = record.toSearchHit()
+            if hitsByConversation.count == expectedConversationCount {
+                break
+            }
+        }
     }
 
-    func deleteMessage(id: String) throws {
+    private func upsertMessageSearchIndex(_ record: MessageRecord) throws {
+        try deleteMessageSearchIndex(messageId: record.id)
+
+        let searchIndexRecord = MessageSearchIndexRecord.fromMessageRecord(record)
+        guard searchIndexRecord.isSearchable else { return }
+        try database.insert(searchIndexRecord, intoTable: WCDBTables.messageSearchIndex)
+    }
+
+    private func deleteMessageSearchIndex(messageId: String) throws {
         try database.delete(
-            fromTable: WCDBTables.message,
-            where: MessageRecord.Properties.id == id
+            fromTable: WCDBTables.messageSearchIndex,
+            where: MessageSearchIndexRecord.Properties.messageId == messageId
         )
     }
 
-    func deleteAll() throws {
-        try database.delete(fromTable: WCDBTables.message)
+    private static func makeFTSMatchQuery(_ value: String) -> String? {
+        let tokens = tokenizeFTSQuery(value)
+        guard tokens.count == 1, let token = tokens.first else {
+            return nil
+        }
+        return "\(token)*"
+    }
+
+    private static func tokenizeFTSQuery(_ value: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+
+        for scalar in value.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                current.unicodeScalars.append(scalar)
+            } else if !current.isEmpty {
+                tokens.append(current)
+                current.removeAll(keepingCapacity: true)
+            }
+        }
+
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+
+        return tokens
     }
 
     private static func escapeLikePattern(_ value: String) -> String {

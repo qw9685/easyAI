@@ -14,6 +14,7 @@ import WCDBSwift
 enum WCDBTables {
     static let conversation = "conversation"
     static let message = "message"
+    static let messageSearchIndex = "message_search_index"
     static let modelCache = "model_cache"
 }
 
@@ -27,12 +28,14 @@ final class WCDBManager: WCDBTransactionRunning {
 
     let database: Database
     private let versionKey = "WCDB.schema.version"
-    private let latestVersion = 5
+    private let latestVersion = 6
 
     private init() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("easyai.sqlite")
         database = Database(at: fileURL)
+        database.add(tokenizer: BuiltinTokenizer.Verbatim)
+        database.setAutoMergeFTS5Index(enable: true)
         setupSchema()
     }
 
@@ -42,12 +45,15 @@ final class WCDBManager: WCDBTransactionRunning {
     /// - v3: message 指标列（token/耗时/费用）
     /// - v4: message 路由元数据列（smart routing）
     /// - v5: 旧消息主键迁移为稳定 UUID
+    /// - v6: message FTS5 全文索引虚表
     private func setupSchema() {
         do {
             let storedVersion = UserDefaults.standard.integer(forKey: versionKey)
             var conversationExists = try database.isTableExists(WCDBTables.conversation)
             var messageExists = try database.isTableExists(WCDBTables.message)
+            var messageSearchIndexExists = try database.isTableExists(WCDBTables.messageSearchIndex)
             var modelCacheExists = try database.isTableExists(WCDBTables.modelCache)
+            var createdMessageSearchIndex = false
 
             if !conversationExists {
                 try database.create(table: WCDBTables.conversation, of: ConversationRecord.self)
@@ -57,6 +63,12 @@ final class WCDBManager: WCDBTransactionRunning {
             if !messageExists {
                 try database.create(table: WCDBTables.message, of: MessageRecord.self)
                 messageExists = true
+            }
+
+            if !messageSearchIndexExists {
+                try createMessageSearchIndexTableIfNeeded()
+                messageSearchIndexExists = true
+                createdMessageSearchIndex = true
             }
 
             if !modelCacheExists {
@@ -70,6 +82,9 @@ final class WCDBManager: WCDBTransactionRunning {
                 try addMessageRoutingColumnsIfNeeded()
                 if storedVersion < 5 {
                     try migrateLegacyMessageIDsIfNeeded()
+                }
+                if messageSearchIndexExists, (storedVersion < 6 || createdMessageSearchIndex) {
+                    try rebuildMessageSearchIndex()
                 }
             }
 
@@ -113,6 +128,16 @@ final class WCDBManager: WCDBTransactionRunning {
                                     MessageRecord.Properties.timestamp.asIndex()
                                 ],
                                 forTable: WCDBTables.message)
+        } catch {
+            if !isSchemaAlreadyExistsError(error) {
+                throw error
+            }
+        }
+    }
+
+    private func createMessageSearchIndexTableIfNeeded() throws {
+        do {
+            try database.create(virtualTable: WCDBTables.messageSearchIndex, of: MessageSearchIndexRecord.self)
         } catch {
             if !isSchemaAlreadyExistsError(error) {
                 throw error
@@ -217,6 +242,19 @@ final class WCDBManager: WCDBTransactionRunning {
                     where: MessageRecord.Properties.id == record.id
                 )
             }
+        }
+    }
+
+    private func rebuildMessageSearchIndex() throws {
+        let messageRecords: [MessageRecord] = try database.getObjects(fromTable: WCDBTables.message)
+        let searchIndexRecords = messageRecords
+            .map(MessageSearchIndexRecord.fromMessageRecord)
+            .filter(\.isSearchable)
+
+        try runTransaction {
+            try database.delete(fromTable: WCDBTables.messageSearchIndex)
+            guard !searchIndexRecords.isEmpty else { return }
+            try database.insert(searchIndexRecords, intoTable: WCDBTables.messageSearchIndex)
         }
     }
 

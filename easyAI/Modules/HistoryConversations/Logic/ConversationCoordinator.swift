@@ -53,6 +53,8 @@ final class ConversationCoordinator {
     }
 
     func deleteMessage(id: String) throws {
-        try messageRepository.deleteMessage(id: id)
+        try transactionRunner.runTransaction {
+            try messageRepository.deleteMessage(id: id)
+        }
     }
 }
