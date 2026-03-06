@@ -9,6 +9,7 @@
 
 
 import Foundation
+import SQLite3
 import WCDBSwift
 
 enum WCDBTables {
@@ -27,12 +28,14 @@ final class WCDBManager: WCDBTransactionRunning {
     static let shared = WCDBManager()
 
     let database: Database
+    private let databasePath: String
     private let versionKey = "WCDB.schema.version"
     private let latestVersion = 7
 
     private init() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("easyai.sqlite")
+        databasePath = fileURL.path
         database = Database(at: fileURL)
         database.add(tokenizer: BuiltinTokenizer.Verbatim)
         database.setAutoMergeFTS5Index(enable: true)
@@ -188,16 +191,7 @@ final class WCDBManager: WCDBTransactionRunning {
             ("metrics_estimated", MessageRecord.Properties.metricsEstimated.asDef(with: .integer32))
         ]
 
-        for column in columns {
-            do {
-                try database.addColumn(with: column.def, forTable: WCDBTables.message)
-            } catch {
-                if isSchemaAlreadyExistsError(error) {
-                    continue
-                }
-                RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to add column \(column.name): \(error)")
-            }
-        }
+        try addColumnsIfMissing(columns, to: WCDBTables.message)
     }
 
     private func addMessageRoutingColumnsIfNeeded() throws {
@@ -210,16 +204,60 @@ final class WCDBManager: WCDBTransactionRunning {
             ("routing_timestamp", MessageRecord.Properties.routingTimestamp.asDef(with: .text))
         ]
 
+        try addColumnsIfMissing(columns, to: WCDBTables.message)
+    }
+
+    private func addColumnsIfMissing(
+        _ columns: [(name: String, def: ColumnDef)],
+        to table: String
+    ) throws {
+        var existingColumns = try existingColumnNames(in: table)
+
         for column in columns {
+            guard !existingColumns.contains(column.name) else {
+                continue
+            }
+
             do {
-                try database.addColumn(with: column.def, forTable: WCDBTables.message)
+                try database.addColumn(with: column.def, forTable: table)
+                existingColumns.insert(column.name)
             } catch {
                 if isSchemaAlreadyExistsError(error) {
+                    existingColumns.insert(column.name)
                     continue
                 }
                 RuntimeTools.AppDiagnostics.warn("WCDBManager", "Failed to add column \(column.name): \(error)")
             }
         }
+    }
+
+    private func existingColumnNames(in table: String) throws -> Set<String> {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(databasePath, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let handle else {
+            let message = handle.flatMap { sqlite3_errmsg($0).map { String(cString: $0) } } ?? "unknown"
+            sqlite3_close(handle)
+            throw NSError(domain: "WCDBManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to open database for schema inspection: \(message)"])
+        }
+        defer { sqlite3_close(handle) }
+
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let sql = "PRAGMA table_info('\(escapedTable)');"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            let message = sqlite3_errmsg(handle).map { String(cString: $0) } ?? "unknown"
+            throw NSError(domain: "WCDBManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to inspect table schema: \(message)"])
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var columns = Set<String>()
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let pointer = sqlite3_column_text(statement, 1) {
+                columns.insert(String(cString: pointer).lowercased())
+            }
+        }
+        return columns
     }
 
     private func migrateLegacyMessageIDsIfNeeded() throws {
