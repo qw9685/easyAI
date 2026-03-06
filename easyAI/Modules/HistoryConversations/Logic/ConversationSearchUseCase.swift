@@ -61,10 +61,18 @@ final class ConversationSearchUseCase {
         }
 
         let messageHits = await RuntimeTools.AsyncExecutor.run { [messageSearchProvider] in
-            (try? messageSearchProvider.searchFirstMatchingMessages(
-                query: trimmedQuery,
-                conversationIds: remainingConversationIDs
-            )) ?? []
+            do {
+                return try messageSearchProvider.searchFirstMatchingMessages(
+                    query: trimmedQuery,
+                    conversationIds: remainingConversationIDs
+                )
+            } catch {
+                RuntimeTools.AppDiagnostics.warn(
+                    "ConversationSearchUseCase",
+                    "Failed to search messages: \(error)"
+                )
+                return []
+            }
         }
 
         if Task.isCancelled {
