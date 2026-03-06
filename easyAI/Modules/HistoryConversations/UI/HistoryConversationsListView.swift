@@ -236,42 +236,7 @@ struct HistoryConversationsListView: View {
 
     private func performSearch(query: String) async {
         guard !Task.isCancelled else { return }
-        var results: [String: ConversationSearchMatch] = [:]
-
-        let conversations = await MainActor.run { viewModel.conversations }
-        for conversation in conversations {
-            let titleRanges = findRanges(in: conversation.title, query: query)
-            var snippet: String?
-            var snippetRanges: [Range<String.Index>] = []
-
-            if titleRanges.isEmpty {
-                let conversationId = conversation.id
-                let messages = await fetchRecentMessagesInBackground(conversationId: conversationId, limit: 200)
-                if let messages {
-                    for message in messages {
-                        let ranges = findRanges(in: message.content, query: query)
-                        if let first = ranges.first {
-                            let snippetResult = makeSnippet(text: message.content, matchRange: first)
-                            snippet = snippetResult.snippet
-                            snippetRanges = snippetResult.ranges
-                            break
-                        }
-                    }
-                }
-            }
-
-            if !titleRanges.isEmpty || snippet != nil {
-                results[conversation.id] = ConversationSearchMatch(
-                    titleRanges: titleRanges,
-                    snippet: snippet,
-                    snippetRanges: snippetRanges
-                )
-            }
-
-            if Task.isCancelled {
-                return
-            }
-        }
+        let results = await viewModel.searchConversations(query: query)
 
         guard !Task.isCancelled else { return }
         await MainActor.run {
@@ -279,62 +244,11 @@ struct HistoryConversationsListView: View {
         }
     }
 
-    private func findRanges(in text: String, query: String) -> [Range<String.Index>] {
-        guard !query.isEmpty else { return [] }
-        var ranges: [Range<String.Index>] = []
-        var searchStart = text.startIndex
-        while searchStart < text.endIndex,
-              let range = text.range(
-                of: query,
-                options: [.caseInsensitive, .diacriticInsensitive],
-                range: searchStart..<text.endIndex,
-                locale: .current
-              ) {
-            ranges.append(range)
-            searchStart = range.upperBound
-        }
-        return ranges
-    }
-
-    private func makeSnippet(text: String, matchRange: Range<String.Index>) -> (snippet: String, ranges: [Range<String.Index>]) {
-        let contextLength = 24
-        let startOffset = text.distance(from: text.startIndex, to: matchRange.lowerBound)
-        let endOffset = text.distance(from: text.startIndex, to: matchRange.upperBound)
-
-        let snippetStartOffset = max(0, startOffset - contextLength)
-        let snippetEndOffset = min(text.count, endOffset + contextLength)
-
-        let snippetStart = text.index(text.startIndex, offsetBy: snippetStartOffset)
-        let snippetEnd = text.index(text.startIndex, offsetBy: snippetEndOffset)
-        let snippet = String(text[snippetStart..<snippetEnd])
-
-        let highlightStart = snippet.index(snippet.startIndex, offsetBy: startOffset - snippetStartOffset)
-        let highlightEnd = snippet.index(snippet.startIndex, offsetBy: endOffset - snippetStartOffset)
-        let ranges = [highlightStart..<highlightEnd]
-
-        return (snippet, ranges)
-    }
-
     private func clearSearch() {
         searchText = ""
         searchResults = [:]
         isSearching = false
     }
-
-    private func fetchRecentMessagesInBackground(conversationId: String, limit: Int) async -> [Message]? {
-        await RuntimeTools.AsyncExecutor.run {
-            try? MessageRepository.shared.fetchRecentMessages(
-                conversationId: conversationId,
-                limit: limit
-            )
-        }
-    }
-}
-
-private struct ConversationSearchMatch {
-    let titleRanges: [Range<String.Index>]
-    let snippet: String?
-    let snippetRanges: [Range<String.Index>]
 }
 
 private struct ConversationRow: View {
@@ -372,14 +286,27 @@ private struct ConversationRow: View {
         }
     }
 
-    private func highlightedText(_ text: String, ranges: [Range<String.Index>], baseFont: Font) -> AttributedString {
+    private func highlightedText(_ text: String, ranges: [TextHighlightRange], baseFont: Font) -> AttributedString {
         var attributed = AttributedString(text)
         for range in ranges {
-            if let attrRange = Range(range, in: attributed) {
-                attributed[attrRange].foregroundColor = AppThemeSwift.accent
-                attributed[attrRange].font = baseFont.weight(.semibold)
+            guard let stringRange = makeRange(in: text, from: range),
+                  let attrRange = Range(stringRange, in: attributed) else {
+                continue
             }
+            attributed[attrRange].foregroundColor = AppThemeSwift.accent
+            attributed[attrRange].font = baseFont.weight(.semibold)
         }
         return attributed
+    }
+
+    private func makeRange(in text: String, from highlight: TextHighlightRange) -> Range<String.Index>? {
+        guard highlight.start >= 0,
+              highlight.length > 0,
+              highlight.end <= text.count,
+              let start = text.index(text.startIndex, offsetBy: highlight.start, limitedBy: text.endIndex),
+              let end = text.index(start, offsetBy: highlight.length, limitedBy: text.endIndex) else {
+            return nil
+        }
+        return start..<end
     }
 }

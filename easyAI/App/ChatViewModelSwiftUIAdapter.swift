@@ -84,6 +84,7 @@ struct RoutingEffectStats {
 final class ChatViewModelSwiftUIAdapter: ObservableObject {
     let viewModel: ChatViewModel
     private let disposeBag = DisposeBag()
+    private let conversationSearchUseCase: ConversationSearchUseCase
 
     @Published private(set) var conversations: [ConversationRecord] = []
     @Published private(set) var isSwitchingConversation: Bool = false
@@ -94,8 +95,12 @@ final class ChatViewModelSwiftUIAdapter: ObservableObject {
     @Published private(set) var routingEffectStats: RoutingEffectStats = .empty
     @Published private(set) var providerStats: [ProviderStats] = []
 
-    init(viewModel: ChatViewModel) {
+    init(
+        viewModel: ChatViewModel,
+        conversationSearchUseCase: ConversationSearchUseCase
+    ) {
         self.viewModel = viewModel
+        self.conversationSearchUseCase = conversationSearchUseCase
         self.providerStats = ProviderStatsRepository.shared.fetchAll()
         bind()
     }
@@ -127,6 +132,10 @@ final class ChatViewModelSwiftUIAdapter: ObservableObject {
 
     func loadModels(forceRefresh: Bool = false) async {
         await viewModel.loadModels(forceRefresh: forceRefresh)
+    }
+
+    func searchConversations(query: String) async -> [String: ConversationSearchMatch] {
+        await conversationSearchUseCase.search(query: query, conversations: conversations)
     }
 
     func clearProviderStats() {

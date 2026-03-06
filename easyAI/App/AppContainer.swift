@@ -38,4 +38,8 @@ final class AppContainer {
             messageRepository: messageRepository
         )
     }
+
+    func makeConversationSearchUseCase() -> ConversationSearchUseCase {
+        ConversationSearchUseCase(messageSearchProvider: messageRepository)
+    }
 }

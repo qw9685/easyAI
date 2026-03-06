@@ -95,6 +95,40 @@ final class MessageRepository {
         return records.reversed().map { $0.toMessage() }
     }
 
+    func searchFirstMatchingMessages(query: String, conversationIds: [String]) throws -> [ConversationMessageSearchHit] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty, !conversationIds.isEmpty else {
+            return []
+        }
+
+        let escapedQuery = Self.escapeLikePattern(trimmedQuery.lowercased())
+        let records: [MessageRecord] = try database.getObjects(
+            fromTable: WCDBTables.message,
+            where: MessageRecord.Properties.conversationId.in(conversationIds)
+                && MessageRecord.Properties.content.lower().like("%\(escapedQuery)%").escape("\\"),
+            orderBy: [
+                MessageRecord.Properties.timestamp.order(.descending),
+                MessageRecord.Properties.id.order(.descending)
+            ]
+        )
+
+        var hitsByConversation: [String: ConversationMessageSearchHit] = [:]
+        for record in records {
+            guard hitsByConversation[record.conversationId] == nil else { continue }
+            hitsByConversation[record.conversationId] = ConversationMessageSearchHit(
+                conversationId: record.conversationId,
+                messageId: record.id,
+                content: record.content,
+                timestamp: record.timestamp
+            )
+            if hitsByConversation.count == conversationIds.count {
+                break
+            }
+        }
+
+        return conversationIds.compactMap { hitsByConversation[$0] }
+    }
+
     func deleteMessages(conversationId: String) throws {
         try database.delete(fromTable: WCDBTables.message,
                             where: MessageRecord.Properties.conversationId == conversationId)
@@ -154,5 +188,22 @@ final class MessageRepository {
 
     func deleteAll() throws {
         try database.delete(fromTable: WCDBTables.message)
+    }
+
+    private static func escapeLikePattern(_ value: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(value.count)
+
+        for character in value {
+            switch character {
+            case "\\", "%", "_":
+                escaped.append("\\")
+                escaped.append(character)
+            default:
+                escaped.append(character)
+            }
+        }
+
+        return escaped
     }
 }

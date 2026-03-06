@@ -324,7 +324,13 @@ struct SettingsView: View {
 }
 
 #Preview {
+    let container = AppContainer.shared
     SettingsView()
-        .environmentObject(ChatViewModelSwiftUIAdapter(viewModel: ChatViewModel()))
+        .environmentObject(
+            ChatViewModelSwiftUIAdapter(
+                viewModel: container.makeChatViewModel(),
+                conversationSearchUseCase: container.makeConversationSearchUseCase()
+            )
+        )
         .environmentObject(ThemeManager.shared)
 }

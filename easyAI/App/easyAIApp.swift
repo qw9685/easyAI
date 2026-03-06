@@ -20,9 +20,15 @@ struct easyAIApp: App {
 
     init() {
         _ = ConfigManager.shared
-        let viewModel = AppContainer.shared.makeChatViewModel()
+        let container = AppContainer.shared
+        let viewModel = container.makeChatViewModel()
         self.chatViewModel = viewModel
-        _chatAdapter = StateObject(wrappedValue: ChatViewModelSwiftUIAdapter(viewModel: viewModel))
+        _chatAdapter = StateObject(
+            wrappedValue: ChatViewModelSwiftUIAdapter(
+                viewModel: viewModel,
+                conversationSearchUseCase: container.makeConversationSearchUseCase()
+            )
+        )
     }
 
     var body: some Scene {
