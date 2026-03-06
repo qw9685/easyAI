@@ -192,6 +192,7 @@ struct AnyCodable: Codable {
 // MARK: - 错误
 enum OpenRouterError: LocalizedError {
     case missingAPIKey
+    case authenticationFailed(message: String)
     case invalidURL
     case invalidResponse
     case apiError(statusCode: Int, message: String)
@@ -204,6 +205,8 @@ enum OpenRouterError: LocalizedError {
         switch self {
         case .missingAPIKey:
             return "OpenRouter API Key 未配置，请在设置中添加或在 Info.plist 中配置。"
+        case .authenticationFailed(let message):
+            return message
         case .invalidURL:
             return "无效的 OpenRouter URL"
         case .invalidResponse:

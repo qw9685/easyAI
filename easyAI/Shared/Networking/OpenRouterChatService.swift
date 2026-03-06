@@ -29,6 +29,9 @@ final class OpenRouterChatService: ChatServiceProtocol {
             for try await chunk in sendMessageStream(messages: messages, model: model, fallbackModelIDs: fallbackModelIDs) {
                 fullContent += chunk
             }
+            guard !fullContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OpenRouterError.invalidResponse
+            }
             return ChatServiceResponse(content: fullContent, usage: nil)
         }
 

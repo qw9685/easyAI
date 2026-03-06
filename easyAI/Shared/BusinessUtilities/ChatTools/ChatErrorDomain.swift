@@ -2,6 +2,7 @@ import Foundation
 
 enum ChatErrorCategory: String {
     case missingAPIKey
+    case authenticationFailed
     case insufficientCredits
     case invalidModel
     case modelNotFound
@@ -45,6 +46,8 @@ struct ClassifiedChatError {
             return "请检查网络连接后重试。"
         case .missingAPIKey:
             return "请前往设置页填写有效 API Key。"
+        case .authenticationFailed:
+            return "请检查 API Key 是否正确、是否已生效，并确认账户权限正常。"
         default:
             return nil
         }
@@ -74,6 +77,8 @@ struct ClassifiedChatError {
             categoryText = "网络异常"
         case .missingAPIKey:
             categoryText = "缺少 API Key"
+        case .authenticationFailed:
+            categoryText = "鉴权失败"
         case .invalidModel:
             categoryText = "模型无效"
         case .modelNotFound:

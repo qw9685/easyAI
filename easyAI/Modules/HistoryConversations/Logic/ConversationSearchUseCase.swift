@@ -16,7 +16,7 @@ protocol ConversationMessageSearchProviding {
 
 extension MessageRepository: ConversationMessageSearchProviding {}
 
-final class ConversationSearchUseCase {
+struct ConversationSearchUseCase {
     private let messageSearchProvider: ConversationMessageSearchProviding
     private let snippetContextLength: Int
     private let snippetDefaultLength: Int

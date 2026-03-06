@@ -37,6 +37,14 @@ enum ChatFailureKit {
             )
         }
 
+        if lower.contains("authentication") || lower.contains("unauthorized") || lower.contains("missing authentication header") || lower.contains("api key") {
+            return ClassifiedChatError(
+                category: .authenticationFailed,
+                userMessage: "鉴权失败，请检查 OpenRouter API Key 或账号权限。",
+                technicalMessage: description
+            )
+        }
+
         return ClassifiedChatError(
             category: .unknown,
             userMessage: description,
@@ -51,6 +59,12 @@ enum ChatFailureKit {
                 category: .missingAPIKey,
                 userMessage: "请先在设置中填写 OpenRouter API Key",
                 technicalMessage: error.localizedDescription
+            )
+        case .authenticationFailed(let message):
+            return ClassifiedChatError(
+                category: .authenticationFailed,
+                userMessage: "OpenRouter 鉴权失败，请检查 API Key 或账号权限。",
+                technicalMessage: message
             )
         case .insufficientCredits(let message):
             return ClassifiedChatError(
@@ -77,6 +91,13 @@ enum ChatFailureKit {
                 technicalMessage: message
             )
         case .apiError(let statusCode, let message):
+            if statusCode == 401 || statusCode == 403 {
+                return ClassifiedChatError(
+                    category: .authenticationFailed,
+                    userMessage: "OpenRouter 鉴权失败，请检查 API Key 或账号权限。",
+                    technicalMessage: message
+                )
+            }
             if statusCode == 408 {
                 return ClassifiedChatError(
                     category: .timeout,

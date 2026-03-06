@@ -122,7 +122,7 @@ enum ModelDecisionKit {
             return AppConfig.fallbackRetryOnServerUnavailable
         case .network:
             return AppConfig.fallbackRetryOnNetwork
-        case .insufficientCredits, .invalidModel, .modelNotFound, .modelNotSupportMultimodal, .contextTooLong, .missingAPIKey, .cancelled:
+        case .insufficientCredits, .invalidModel, .modelNotFound, .modelNotSupportMultimodal, .contextTooLong, .missingAPIKey, .authenticationFailed, .cancelled:
             return false
         case .unknown:
             return false

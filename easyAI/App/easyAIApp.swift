@@ -14,36 +14,13 @@ import SwiftUI
 
 @main
 struct easyAIApp: App {
-    init() {
-        if !Self.isRunningUnitTests {
-            _ = ConfigManager.shared
-        }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            Group {
-                if Self.isRunningUnitTests {
-                    EmptyView()
-                } else {
-                    AppBootstrapView()
-                }
-            }
-        }
-    }
-
-    private static var isRunningUnitTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || NSClassFromString("XCTestCase") != nil
-    }
-}
-
-private struct AppBootstrapView: View {
     private let chatViewModel: ChatViewModel
     @StateObject private var chatAdapter: ChatViewModelSwiftUIAdapter
     @StateObject private var themeManager = ThemeManager.shared
 
-    init(container: AppContainer = .shared) {
+    init() {
+        _ = ConfigManager.shared
+        let container = AppContainer.shared
         let viewModel = container.makeChatViewModel()
         self.chatViewModel = viewModel
         _chatAdapter = StateObject(
@@ -54,9 +31,11 @@ private struct AppBootstrapView: View {
         )
     }
 
-    var body: some View {
-        ChatRootView(viewModel: chatViewModel)
-            .environmentObject(chatAdapter)
-            .environmentObject(themeManager)
+    var body: some Scene {
+        WindowGroup {
+            ChatRootView(viewModel: chatViewModel)
+                .environmentObject(chatAdapter)
+                .environmentObject(themeManager)
+        }
     }
 }

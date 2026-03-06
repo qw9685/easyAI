@@ -22,6 +22,11 @@ struct OpenRouterResponseValidator {
                 RuntimeTools.AppDiagnostics.warn("OpenRouterChatService", "❌ API error: \(errorMessage)")
             }
 
+            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                let friendlyMessage = "OpenRouter 鉴权失败。\n\n错误详情：\(errorMessage)\n\n解决方案：\n1. 检查设置中的 API Key 是否填写正确\n2. 确认请求头已携带 Bearer Token\n3. 若刚更新密钥，请重新发送一次请求\n4. 检查当前账号或模型权限是否可用"
+                throw OpenRouterError.authenticationFailed(message: friendlyMessage)
+            }
+
             if httpResponse.statusCode == 402 {
                 let maxTokens = OpenRouterRuntimeConfig.current().maxTokens
                 let friendlyMessage = "账户余额不足。\n\n错误详情：\(errorMessage)\n\n解决方案：\n1. 访问 https://openrouter.ai/settings/credits 充值\n2. 切换到免费模型（如 Gemini 2.0 Flash、Llama 3.1 8B 等）\n3. 在设置中减少 max_tokens 参数（当前设置为 \(maxTokens)）"

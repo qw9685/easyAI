@@ -76,6 +76,10 @@ final class ChatTurnRunner {
             }
         }
 
+        guard !fullContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OpenRouterError.invalidResponse
+        }
+
         let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
         if AppConfig.enablephaseLogs {
             let avgChunkMs = chunkCount > 1
