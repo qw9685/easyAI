@@ -1,6 +1,7 @@
 import XCTest
 @testable import easyAI
 
+@MainActor
 final class ConversationSearchUseCaseTests: XCTestCase {
 
     func testSearchReturnsTitleHighlightWhenConversationTitleMatches() async {

@@ -13,25 +13,37 @@ import SwiftUI
 
 private enum ConversationSearchState: Equatable {
     case idle
-    case searching(generation: Int)
-    case completed(generation: Int)
+    case searching(generation: Int, matches: [String: ConversationSearchMatch])
+    case completed(generation: Int, matches: [String: ConversationSearchMatch])
 
     var generation: Int? {
         switch self {
         case .idle:
             return nil
-        case .searching(let generation), .completed(let generation):
+        case .searching(let generation, _), .completed(let generation, _):
             return generation
         }
     }
 
-    var isActive: Bool {
-        generation != nil
+    var matches: [String: ConversationSearchMatch] {
+        switch self {
+        case .idle:
+            return [:]
+        case .searching(_, let matches), .completed(_, let matches):
+            return matches
+        }
     }
 
-    var isCompleted: Bool {
-        if case .completed = self {
-            return true
+    var showsSearchDetails: Bool {
+        if case .idle = self {
+            return false
+        }
+        return true
+    }
+
+    var shouldShowEmptyResults: Bool {
+        if case .completed(_, let matches) = self {
+            return matches.isEmpty
         }
         return false
     }
@@ -46,7 +58,6 @@ struct HistoryConversationsListView: View {
     @State private var renameTitle: String = ""
     @State private var showRenameAlert: Bool = false
     @State private var searchText: String = ""
-    @State private var searchResults: [String: ConversationSearchMatch] = [:]
     @State private var searchTask: Task<Void, Never>?
     @State private var searchState: ConversationSearchState = .idle
 
@@ -96,8 +107,8 @@ struct HistoryConversationsListView: View {
                 ForEach(filteredConversations, id: \.id) { conversation in
                     ConversationRow(
                         conversation: conversation,
-                        searchMatch: searchResults[conversation.id],
-                        showsSearchDetails: searchState.isActive
+                        searchMatch: searchState.matches[conversation.id],
+                        showsSearchDetails: searchState.showsSearchDetails
                     )
                     .padding(.vertical, 10)
                     .padding(.horizontal, 12)
@@ -186,13 +197,13 @@ struct HistoryConversationsListView: View {
 
         let matchedConversations = ConversationSearchRanking.sort(
             conversations: viewModel.conversations,
-            matches: searchResults
+            matches: searchState.matches
         )
         if !matchedConversations.isEmpty {
             return matchedConversations
         }
 
-        return searchState.isCompleted ? [] : viewModel.conversations
+        return searchState.shouldShowEmptyResults ? [] : viewModel.conversations
     }
 
     private var searchBar: some View {
@@ -217,7 +228,7 @@ struct HistoryConversationsListView: View {
 
     @ViewBuilder
     private var emptyStateView: some View {
-        if searchState.isCompleted && !trimmedSearchText.isEmpty && filteredConversations.isEmpty {
+        if searchState.shouldShowEmptyResults && !trimmedSearchText.isEmpty && filteredConversations.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 40))
@@ -263,8 +274,8 @@ struct HistoryConversationsListView: View {
         }
 
         let currentGeneration = nextSearchGeneration
-        searchState = .searching(generation: currentGeneration)
-        searchResults = viewModel.searchConversationTitles(query: trimmed)
+        let titleMatches = viewModel.searchConversationTitles(query: trimmed)
+        searchState = .searching(generation: currentGeneration, matches: titleMatches)
 
         searchTask = Task {
             guard !Task.isCancelled else { return }
@@ -283,15 +294,13 @@ struct HistoryConversationsListView: View {
                   query == trimmedSearchText else {
                 return
             }
-            searchResults = results
-            searchState = .completed(generation: generation)
+            searchState = .completed(generation: generation, matches: results)
         }
     }
 
     private func clearSearch() {
         resetSearchState()
         searchText = ""
-        searchResults = [:]
     }
 
     private func resetSearchState() {

@@ -1,1 +1,3 @@
-easyAI.xcodeproj/project.xcworkspace/xcuserdata/cc.xcuserdatad/UserInterfaceState.xcuserstate
+# Xcode user-specific files
+xcuserdata/
+*.xcuserstate
