@@ -108,6 +108,113 @@ final class ConversationSearchUseCaseTests: XCTestCase {
 
         XCTAssertEqual(provider.receivedConversationIDs.first, ["c7"])
     }
+
+    func testSearchTitleMatchesReturnsImmediateTitleHitsWithoutMessageLookup() {
+        let provider = MockMessageSearchProvider(hits: [
+            ConversationMessageSearchHit(conversationId: "c8", messageId: "m1", content: "不会被调用", timestamp: Date())
+        ])
+        let useCase = ConversationSearchUseCase(messageSearchProvider: provider)
+        let conversations = [
+            ConversationRecord(id: "c8", title: "Timeout 排查", isPinned: false, createdAt: Date(), updatedAt: Date()),
+            ConversationRecord(id: "c9", title: "其他", isPinned: false, createdAt: Date(), updatedAt: Date())
+        ]
+
+        let results = useCase.searchTitleMatches(query: "timeout", conversations: conversations)
+
+        XCTAssertEqual(results.keys.sorted(), ["c8"])
+        XCTAssertEqual(results["c8"]?.titleRanges, [TextHighlightRange(start: 0, length: 7)])
+        XCTAssertTrue(provider.receivedQueries.isEmpty)
+    }
+
+    func testSearchTitleMatchesReturnsEmptyForBlankQuery() {
+        let provider = MockMessageSearchProvider()
+        let useCase = ConversationSearchUseCase(messageSearchProvider: provider)
+        let conversations = [
+            ConversationRecord(id: "c10", title: "任意标题", isPinned: false, createdAt: Date(), updatedAt: Date())
+        ]
+
+        let results = useCase.searchTitleMatches(query: "   ", conversations: conversations)
+
+        XCTAssertTrue(results.isEmpty)
+        XCTAssertTrue(provider.receivedQueries.isEmpty)
+    }
+
+    func testFindHighlightRangesReturnsMultipleMatches() {
+        let useCase = ConversationSearchUseCase(messageSearchProvider: MockMessageSearchProvider())
+
+        let ranges = useCase.findHighlightRanges(in: "debug bug debug", query: "debug")
+
+        XCTAssertEqual(
+            ranges,
+            [
+                TextHighlightRange(start: 0, length: 5),
+                TextHighlightRange(start: 10, length: 5)
+            ]
+        )
+    }
+
+    func testFindHighlightRangesSplitsMultiTokenQuery() {
+        let useCase = ConversationSearchUseCase(messageSearchProvider: MockMessageSearchProvider())
+
+        let ranges = useCase.findHighlightRanges(in: "timeout happened before another error", query: "timeout error")
+
+        XCTAssertEqual(
+            ranges,
+            [
+                TextHighlightRange(start: 0, length: 7),
+                TextHighlightRange(start: 32, length: 5)
+            ]
+        )
+    }
+
+    func testMakeSnippetAddsEllipsisAndRelativeRanges() {
+        let useCase = ConversationSearchUseCase(
+            messageSearchProvider: MockMessageSearchProvider(),
+            snippetContextLength: 4,
+            snippetDefaultLength: 8,
+            snippetBoundaryScanLength: 0
+        )
+
+        let snippet = useCase.makeSnippet(
+            text: "0123456789timeoutABCDE",
+            matchRange: TextHighlightRange(start: 10, length: 7)
+        )
+
+        XCTAssertEqual(snippet.snippet, "…6789timeoutABCD…")
+        XCTAssertEqual(snippet.ranges, [TextHighlightRange(start: 5, length: 7)])
+    }
+
+    func testSearchTitleMatchesSupportsPinyinQuery() {
+        let useCase = ConversationSearchUseCase(messageSearchProvider: MockMessageSearchProvider())
+        let conversations = [
+            ConversationRecord(id: "c11", title: "模型选择", isPinned: false, createdAt: Date(), updatedAt: Date())
+        ]
+
+        let results = useCase.searchTitleMatches(query: "moxing", conversations: conversations)
+
+        XCTAssertEqual(results.keys.sorted(), ["c11"])
+        XCTAssertEqual(results["c11"]?.titleRanges, [])
+    }
+
+    func testSearchReturnsSnippetForPinyinMessageMatchWithoutLiteralHighlights() async {
+        let provider = MockMessageSearchProvider(hits: [
+            ConversationMessageSearchHit(
+                conversationId: "c12",
+                messageId: "m1",
+                content: "模型已经准备好了",
+                timestamp: Date()
+            )
+        ])
+        let useCase = ConversationSearchUseCase(messageSearchProvider: provider)
+        let conversations = [
+            ConversationRecord(id: "c12", title: "测试", isPinned: false, createdAt: Date(), updatedAt: Date())
+        ]
+
+        let results = await useCase.search(query: "moxing", conversations: conversations)
+
+        XCTAssertEqual(results["c12"]?.snippet, "模型已经准备好了")
+        XCTAssertEqual(results["c12"]?.snippetRanges, [])
+    }
 }
 
 private final class MockMessageSearchProvider: ConversationMessageSearchProviding {

@@ -11,6 +11,32 @@
 
 import SwiftUI
 
+private enum ConversationSearchState: Equatable {
+    case idle
+    case searching(generation: Int)
+    case completed(generation: Int)
+
+    var generation: Int? {
+        switch self {
+        case .idle:
+            return nil
+        case .searching(let generation), .completed(let generation):
+            return generation
+        }
+    }
+
+    var isActive: Bool {
+        generation != nil
+    }
+
+    var isCompleted: Bool {
+        if case .completed = self {
+            return true
+        }
+        return false
+    }
+}
+
 struct HistoryConversationsListView: View {
     @EnvironmentObject var viewModel: ChatViewModelSwiftUIAdapter
     @EnvironmentObject var themeManager: ThemeManager
@@ -22,14 +48,12 @@ struct HistoryConversationsListView: View {
     @State private var searchText: String = ""
     @State private var searchResults: [String: ConversationSearchMatch] = [:]
     @State private var searchTask: Task<Void, Never>?
-    @State private var isSearching: Bool = false
-    @State private var hasCompletedSearch: Bool = false
-    @State private var searchGeneration: Int = 0
+    @State private var searchState: ConversationSearchState = .idle
 
     init(isEmbeddedInPager: Bool = false) {
         self.isEmbeddedInPager = isEmbeddedInPager
     }
-    
+
     var body: some View {
         Group {
             if isEmbeddedInPager {
@@ -73,7 +97,7 @@ struct HistoryConversationsListView: View {
                     ConversationRow(
                         conversation: conversation,
                         searchMatch: searchResults[conversation.id],
-                        isSearching: isSearching
+                        showsSearchDetails: searchState.isActive
                     )
                     .padding(.vertical, 10)
                     .padding(.horizontal, 12)
@@ -129,19 +153,14 @@ struct HistoryConversationsListView: View {
             viewModel.dispatch(.loadConversations)
         }
         .onDisappear {
-            searchTask?.cancel()
-            searchTask = nil
-            isSearching = false
-            hasCompletedSearch = false
-            searchGeneration += 1
+            resetSearchState()
         }
         .onChange(of: searchText) { newValue in
             scheduleSearch(newValue)
         }
         .onReceive(viewModel.$conversations) { _ in
-            let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                scheduleSearch(trimmed)
+            if !trimmedSearchText.isEmpty {
+                scheduleSearch(trimmedSearchText)
             }
         }
         .alert("重命名", isPresented: $showRenameAlert) {
@@ -163,15 +182,14 @@ struct HistoryConversationsListView: View {
     }
 
     private var filteredConversations: [ConversationRecord] {
-        let trimmed = trimmedSearchText
-        guard !trimmed.isEmpty else { return viewModel.conversations }
+        guard !trimmedSearchText.isEmpty else { return viewModel.conversations }
 
         let matchedConversations = viewModel.conversations.filter { searchResults[$0.id] != nil }
         if !matchedConversations.isEmpty {
             return matchedConversations
         }
 
-        return hasCompletedSearch ? [] : viewModel.conversations
+        return searchState.isCompleted ? [] : viewModel.conversations
     }
 
     private var searchBar: some View {
@@ -196,7 +214,7 @@ struct HistoryConversationsListView: View {
 
     @ViewBuilder
     private var emptyStateView: some View {
-        if hasCompletedSearch && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredConversations.isEmpty {
+        if searchState.isCompleted && !trimmedSearchText.isEmpty && filteredConversations.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 40))
@@ -226,21 +244,23 @@ struct HistoryConversationsListView: View {
     }
 
     private var trimmedSearchText: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        ConversationSearchKit.trimmedQuery(searchText)
+    }
+
+    private var nextSearchGeneration: Int {
+        (searchState.generation ?? 0) + 1
     }
 
     private func scheduleSearch(_ query: String) {
         searchTask?.cancel()
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = ConversationSearchKit.trimmedQuery(query)
         if trimmed.isEmpty {
             clearSearch()
             return
         }
 
-        searchGeneration += 1
-        let currentGeneration = searchGeneration
-        isSearching = true
-        hasCompletedSearch = false
+        let currentGeneration = nextSearchGeneration
+        searchState = .searching(generation: currentGeneration)
         searchResults = viewModel.searchConversationTitles(query: trimmed)
 
         searchTask = Task {
@@ -255,30 +275,33 @@ struct HistoryConversationsListView: View {
 
         guard !Task.isCancelled else { return }
         await MainActor.run {
-            guard generation == searchGeneration,
+            guard let activeGeneration = searchState.generation,
+                  activeGeneration == generation,
                   query == trimmedSearchText else {
                 return
             }
             searchResults = results
-            hasCompletedSearch = true
+            searchState = .completed(generation: generation)
         }
     }
 
     private func clearSearch() {
-        searchTask?.cancel()
-        searchTask = nil
-        searchGeneration += 1
+        resetSearchState()
         searchText = ""
         searchResults = [:]
-        isSearching = false
-        hasCompletedSearch = false
+    }
+
+    private func resetSearchState() {
+        searchTask?.cancel()
+        searchTask = nil
+        searchState = .idle
     }
 }
 
 private struct ConversationRow: View {
     let conversation: ConversationRecord
     let searchMatch: ConversationSearchMatch?
-    let isSearching: Bool
+    let showsSearchDetails: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -295,7 +318,7 @@ private struct ConversationRow: View {
                         .foregroundColor(AppThemeSwift.textPrimary)
                 }
 
-                if isSearching, let searchMatch, let snippet = searchMatch.snippet {
+                if showsSearchDetails, let searchMatch, let snippet = searchMatch.snippet {
                     Text(highlightedText(snippet, ranges: searchMatch.snippetRanges, baseFont: .caption))
                         .font(.caption)
                         .foregroundColor(AppThemeSwift.textSecondary)

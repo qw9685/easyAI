@@ -28,7 +28,7 @@ final class WCDBManager: WCDBTransactionRunning {
 
     let database: Database
     private let versionKey = "WCDB.schema.version"
-    private let latestVersion = 6
+    private let latestVersion = 7
 
     private init() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -46,6 +46,7 @@ final class WCDBManager: WCDBTransactionRunning {
     /// - v4: message 路由元数据列（smart routing）
     /// - v5: 旧消息主键迁移为稳定 UUID
     /// - v6: message FTS5 全文索引虚表
+    /// - v7: message FTS5 增加拼音字段并重建索引
     private func setupSchema() {
         do {
             let storedVersion = UserDefaults.standard.integer(forKey: versionKey)
@@ -63,6 +64,11 @@ final class WCDBManager: WCDBTransactionRunning {
             if !messageExists {
                 try database.create(table: WCDBTables.message, of: MessageRecord.self)
                 messageExists = true
+            }
+
+            if messageSearchIndexExists && storedVersion < 7 {
+                try database.drop(table: WCDBTables.messageSearchIndex)
+                messageSearchIndexExists = false
             }
 
             if !messageSearchIndexExists {
@@ -83,7 +89,7 @@ final class WCDBManager: WCDBTransactionRunning {
                 if storedVersion < 5 {
                     try migrateLegacyMessageIDsIfNeeded()
                 }
-                if messageSearchIndexExists, (storedVersion < 6 || createdMessageSearchIndex) {
+                if messageSearchIndexExists, (storedVersion < 7 || createdMessageSearchIndex) {
                     try rebuildMessageSearchIndex()
                 }
             }
@@ -289,7 +295,16 @@ final class WCDBManager: WCDBTransactionRunning {
     }
 
     private func isSchemaAlreadyExistsError(_ error: Error) -> Bool {
-        let message = error.localizedDescription.lowercased()
-        return message.contains("already exists") || message.contains("duplicate column")
+        let message = [
+            error.localizedDescription,
+            String(describing: error),
+            String(reflecting: error)
+        ]
+        .joined(separator: "\n")
+        .lowercased()
+
+        return message.contains("already exists")
+            || message.contains("duplicate column")
+            || message.contains("duplicate column name")
     }
 }

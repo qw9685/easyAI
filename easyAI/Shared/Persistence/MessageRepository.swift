@@ -98,7 +98,7 @@ final class MessageRepository {
     }
 
     func searchFirstMatchingMessages(query: String, conversationIds: [String]) throws -> [ConversationMessageSearchHit] {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedQuery = ConversationSearchKit.trimmedQuery(query)
         guard !trimmedQuery.isEmpty, !conversationIds.isEmpty else {
             return []
         }
@@ -160,14 +160,19 @@ final class MessageRepository {
         query: String,
         conversationIds: [String]
     ) throws {
-        guard let ftsQuery = Self.makeFTSMatchQuery(query) else {
+        guard let ftsQuery = ConversationSearchKit.makeFTSMatchQuery(query) else {
             return
         }
 
         let records: [MessageSearchIndexRecord] = try database.getObjects(
             fromTable: WCDBTables.messageSearchIndex,
             where: MessageSearchIndexRecord.Properties.conversationId.in(conversationIds)
-                && MessageSearchIndexRecord.Properties.content.match(ftsQuery),
+                && (
+                    MessageSearchIndexRecord.Properties.content.match(ftsQuery)
+                    || MessageSearchIndexRecord.Properties.contentPinyin.match(ftsQuery)
+                    || MessageSearchIndexRecord.Properties.contentPinyinJoined.match(ftsQuery)
+                    || MessageSearchIndexRecord.Properties.contentPinyinInitials.match(ftsQuery)
+                ),
             orderBy: [
                 MessageSearchIndexRecord.Properties.sortTimestamp.order(.descending),
                 MessageSearchIndexRecord.Properties.messageId.order(.descending)
@@ -235,34 +240,6 @@ final class MessageRepository {
             fromTable: WCDBTables.messageSearchIndex,
             where: MessageSearchIndexRecord.Properties.messageId == messageId
         )
-    }
-
-    private static func makeFTSMatchQuery(_ value: String) -> String? {
-        let tokens = tokenizeFTSQuery(value)
-        guard tokens.count == 1, let token = tokens.first else {
-            return nil
-        }
-        return "\(token)*"
-    }
-
-    private static func tokenizeFTSQuery(_ value: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-
-        for scalar in value.unicodeScalars {
-            if CharacterSet.alphanumerics.contains(scalar) {
-                current.unicodeScalars.append(scalar)
-            } else if !current.isEmpty {
-                tokens.append(current)
-                current.removeAll(keepingCapacity: true)
-            }
-        }
-
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-
-        return tokens
     }
 
     private static func escapeLikePattern(_ value: String) -> String {

@@ -17,6 +17,9 @@ struct MessageSearchIndexRecord: TableCodable {
     var conversationId: String
     var sortTimestamp: Double
     var content: String
+    var contentPinyin: String
+    var contentPinyinJoined: String
+    var contentPinyinInitials: String
 
     enum CodingKeys: String, CodingTableKey {
         typealias Root = MessageSearchIndexRecord
@@ -24,6 +27,9 @@ struct MessageSearchIndexRecord: TableCodable {
         case conversationId = "conversation_id"
         case sortTimestamp = "sort_timestamp"
         case content
+        case contentPinyin = "content_pinyin"
+        case contentPinyinJoined = "content_pinyin_joined"
+        case contentPinyinInitials = "content_pinyin_initials"
         nonisolated(unsafe) static let objectRelationalMapping = TableBinding(CodingKeys.self) {
             BindColumnConstraint(messageId, isNotIndexed: true)
             BindColumnConstraint(conversationId, isNotIndexed: true)
@@ -35,11 +41,15 @@ struct MessageSearchIndexRecord: TableCodable {
     }
 
     static func fromMessageRecord(_ record: MessageRecord) -> MessageSearchIndexRecord {
-        MessageSearchIndexRecord(
+        let phoneticForms = ConversationSearchKit.makePhoneticForms(for: record.content)
+        return MessageSearchIndexRecord(
             messageId: record.id,
             conversationId: record.conversationId,
             sortTimestamp: record.timestamp.timeIntervalSince1970,
-            content: record.content
+            content: record.content,
+            contentPinyin: phoneticForms.spaced,
+            contentPinyinJoined: phoneticForms.joined,
+            contentPinyinInitials: phoneticForms.initials
         )
     }
 
