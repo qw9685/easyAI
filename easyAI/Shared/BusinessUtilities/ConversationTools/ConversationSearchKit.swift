@@ -68,27 +68,31 @@ enum ConversationSearchKit {
     }
 
     static func matchesPhonetically(text: String, query: String) -> Bool {
+        phoneticMatchKind(text: text, query: query) != nil
+    }
+
+    static func phoneticMatchKind(text: String, query: String) -> ConversationSearchPhoneticMatchKind? {
         let textForms = makePhoneticForms(for: text)
         let queryForms = makePhoneticForms(for: query)
 
         guard !textForms.joined.isEmpty,
               !queryForms.joined.isEmpty else {
-            return false
+            return nil
         }
 
         if !queryForms.spaced.isEmpty, textForms.spaced.contains(queryForms.spaced) {
-            return true
+            return .full
         }
 
         if textForms.joined.contains(queryForms.joined) {
-            return true
+            return .full
         }
 
         if !textForms.initials.isEmpty, textForms.initials.contains(queryForms.joined) {
-            return true
+            return .initials
         }
 
-        return false
+        return nil
     }
 
     private static func canUseFTS(query: String) -> Bool {
@@ -113,6 +117,11 @@ enum ConversationSearchKit {
         CFStringTransform(mutable, nil, kCFStringTransformStripCombiningMarks, false)
         return (mutable as String).lowercased()
     }
+}
+
+enum ConversationSearchPhoneticMatchKind: Equatable {
+    case full
+    case initials
 }
 
 struct ConversationSearchPhoneticForms: Equatable {

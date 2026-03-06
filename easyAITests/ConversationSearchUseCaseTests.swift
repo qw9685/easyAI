@@ -122,6 +122,7 @@ final class ConversationSearchUseCaseTests: XCTestCase {
         let results = useCase.searchTitleMatches(query: "timeout", conversations: conversations)
 
         XCTAssertEqual(results.keys.sorted(), ["c8"])
+        XCTAssertEqual(results["c8"]?.kind, .titlePrefix)
         XCTAssertEqual(results["c8"]?.titleRanges, [TextHighlightRange(start: 0, length: 7)])
         XCTAssertTrue(provider.receivedQueries.isEmpty)
     }
@@ -193,6 +194,7 @@ final class ConversationSearchUseCaseTests: XCTestCase {
         let results = useCase.searchTitleMatches(query: "moxing", conversations: conversations)
 
         XCTAssertEqual(results.keys.sorted(), ["c11"])
+        XCTAssertEqual(results["c11"]?.kind, .titlePhonetic)
         XCTAssertEqual(results["c11"]?.titleRanges, [])
     }
 
@@ -212,8 +214,62 @@ final class ConversationSearchUseCaseTests: XCTestCase {
 
         let results = await useCase.search(query: "moxing", conversations: conversations)
 
+        XCTAssertEqual(results["c12"]?.kind, .messagePhonetic)
         XCTAssertEqual(results["c12"]?.snippet, "模型已经准备好了")
         XCTAssertEqual(results["c12"]?.snippetRanges, [])
+    }
+
+    func testConversationSearchRankingPrefersTitlePrefixOverMessageLiteral() {
+        let older = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+        let conversations = [
+            ConversationRecord(id: "message", title: "其他", isPinned: false, createdAt: older, updatedAt: newer),
+            ConversationRecord(id: "title", title: "Timeout 排查", isPinned: false, createdAt: older, updatedAt: older)
+        ]
+        let matches: [String: ConversationSearchMatch] = [
+            "message": ConversationSearchMatch(
+                kind: .messageLiteral,
+                titleRanges: [],
+                snippet: "这里记录 timeout",
+                snippetRanges: [TextHighlightRange(start: 5, length: 7)]
+            ),
+            "title": ConversationSearchMatch(
+                kind: .titlePrefix,
+                titleRanges: [TextHighlightRange(start: 0, length: 7)],
+                snippet: nil,
+                snippetRanges: []
+            )
+        ]
+
+        let ranked = ConversationSearchRanking.sort(conversations: conversations, matches: matches)
+
+        XCTAssertEqual(ranked.map(\.id), ["title", "message"])
+    }
+
+    func testConversationSearchRankingUsesPinnedAndRecencyForSamePriority() {
+        let oldest = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+        let newest = Date(timeIntervalSince1970: 300)
+        let conversations = [
+            ConversationRecord(id: "newer", title: "timeout newer", isPinned: false, createdAt: oldest, updatedAt: newer),
+            ConversationRecord(id: "pinned", title: "timeout pinned", isPinned: true, createdAt: oldest, updatedAt: oldest),
+            ConversationRecord(id: "newest", title: "timeout newest", isPinned: false, createdAt: oldest, updatedAt: newest)
+        ]
+        let sharedMatch = ConversationSearchMatch(
+            kind: .titlePrefix,
+            titleRanges: [TextHighlightRange(start: 0, length: 7)],
+            snippet: nil,
+            snippetRanges: []
+        )
+        let matches: [String: ConversationSearchMatch] = [
+            "newer": sharedMatch,
+            "pinned": sharedMatch,
+            "newest": sharedMatch
+        ]
+
+        let ranked = ConversationSearchRanking.sort(conversations: conversations, matches: matches)
+
+        XCTAssertEqual(ranked.map(\.id), ["pinned", "newest", "newer"])
     }
 }
 

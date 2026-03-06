@@ -184,7 +184,10 @@ struct HistoryConversationsListView: View {
     private var filteredConversations: [ConversationRecord] {
         guard !trimmedSearchText.isEmpty else { return viewModel.conversations }
 
-        let matchedConversations = viewModel.conversations.filter { searchResults[$0.id] != nil }
+        let matchedConversations = ConversationSearchRanking.sort(
+            conversations: viewModel.conversations,
+            matches: searchResults
+        )
         if !matchedConversations.isEmpty {
             return matchedConversations
         }

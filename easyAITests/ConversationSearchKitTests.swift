@@ -17,4 +17,9 @@ final class ConversationSearchKitTests: XCTestCase {
         XCTAssertTrue(ConversationSearchKit.matchesPhonetically(text: "模型选择", query: "mxxz"))
         XCTAssertTrue(ConversationSearchKit.matchesPhonetically(text: "模型选择", query: "mo xing"))
     }
+
+    func testPhoneticMatchKindDistinguishesFullAndInitials() {
+        XCTAssertEqual(ConversationSearchKit.phoneticMatchKind(text: "模型选择", query: "moxing"), .full)
+        XCTAssertEqual(ConversationSearchKit.phoneticMatchKind(text: "模型选择", query: "mxxz"), .initials)
+    }
 }

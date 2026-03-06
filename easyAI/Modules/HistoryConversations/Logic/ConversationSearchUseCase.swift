@@ -191,11 +191,12 @@ final class ConversationSearchUseCase {
 
     private func makeTitleMatch(title: String, query: String) -> ConversationSearchMatch? {
         let titleRanges = findHighlightRanges(in: title, query: query)
-        guard !titleRanges.isEmpty || ConversationSearchKit.matchesPhonetically(text: title, query: query) else {
+        guard let kind = makeTitleMatchKind(title: title, query: query, titleRanges: titleRanges) else {
             return nil
         }
 
         return ConversationSearchMatch(
+            kind: kind,
             titleRanges: titleRanges,
             snippet: nil,
             snippetRanges: []
@@ -204,25 +205,64 @@ final class ConversationSearchUseCase {
 
     private func makeMessageMatch(content: String, query: String) -> ConversationSearchMatch? {
         let snippetRanges = findHighlightRanges(in: content, query: query)
+        let literalRanges = findLiteralHighlightRanges(in: content, term: query)
+
         if !snippetRanges.isEmpty {
             let snippetResult = makeSnippet(text: content, highlightRanges: snippetRanges)
+            let kind: ConversationSearchMatchKind = literalRanges.isEmpty ? .messageToken : .messageLiteral
             return ConversationSearchMatch(
+                kind: kind,
                 titleRanges: [],
                 snippet: snippetResult.snippet,
                 snippetRanges: snippetResult.ranges
             )
         }
 
-        guard ConversationSearchKit.matchesPhonetically(text: content, query: query) else {
+        guard let phoneticKind = ConversationSearchKit.phoneticMatchKind(text: content, query: query) else {
             return nil
         }
 
         let snippetResult = makeSnippet(text: content, highlightRanges: [])
         return ConversationSearchMatch(
+            kind: phoneticKind == .full ? .messagePhonetic : .messageInitials,
             titleRanges: [],
             snippet: snippetResult.snippet,
             snippetRanges: []
         )
+    }
+
+    private func makeTitleMatchKind(
+        title: String,
+        query: String,
+        titleRanges: [TextHighlightRange]
+    ) -> ConversationSearchMatchKind? {
+        let literalRanges = findLiteralHighlightRanges(in: title, term: query)
+        if !literalRanges.isEmpty {
+            if normalizedSearchText(title) == normalizedSearchText(query) {
+                return .titleExact
+            }
+            if literalRanges.contains(where: { $0.start == 0 }) {
+                return .titlePrefix
+            }
+            return .titleLiteral
+        }
+
+        if !titleRanges.isEmpty {
+            return .titleToken
+        }
+
+        switch ConversationSearchKit.phoneticMatchKind(text: title, query: query) {
+        case .full:
+            return .titlePhonetic
+        case .initials:
+            return .titleInitials
+        case .none:
+            return nil
+        }
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     private func uniqueTokens(from query: String) -> [String] {
