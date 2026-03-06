@@ -71,15 +71,6 @@ final class ChatSendMessageUseCase {
         env: ChatSendMessageEnvironment
     ) async {
         var streamingMessageId: UUID?
-        let apiKey = AppConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !AppConfig.useMockData, apiKey.isEmpty {
-            env.setErrorMessage("请先在设置中填写 OpenRouter API Key")
-            env.emitEvent(.switchToSettings)
-            return
-        }
-
-        guard env.ensureConversation() else { return }
-        let activeConversationId = env.getCurrentConversationId()
         activeTypewriter?.cancel()
         activeTypewriter = nil
         let useTypewriter = AppConfig.enableTypewriter
@@ -90,6 +81,35 @@ final class ChatSendMessageUseCase {
                 MediaContent(type: .image, data: imageData, mimeType: mimeType)
             )
         }
+
+        let previewUserMessage = Message(
+            content: content,
+            role: .user,
+            mediaContents: messageMediaContents
+        )
+        let validation = modelSelection.validateSendPrerequisites(
+            selectedModel: env.getSelectedModel(),
+            availableModels: env.getAvailableModels(),
+            userMessage: previewUserMessage
+        )
+
+        var model: AIModel
+        switch validation {
+        case .ready(let selected):
+            model = selected
+            if env.getSelectedModel()?.id != selected.id {
+                env.setSelectedModel(selected)
+            }
+        case .error(let message, let reason):
+            env.setErrorMessage(message)
+            if reason == .missingAPIKey {
+                env.emitEvent(.switchToSettings)
+            }
+            return
+        }
+
+        guard env.ensureConversation() else { return }
+        let activeConversationId = env.getCurrentConversationId()
 
         let turnId = UUID()
         env.setCurrentTurnId(turnId)
@@ -114,21 +134,6 @@ final class ChatSendMessageUseCase {
             itemId: userMessageItemId
         )
         env.appendMessage(userMessage)
-
-        let validation = modelSelection.validateSelection(selectedModel: env.getSelectedModel(), userMessage: userMessage)
-        var model: AIModel
-        switch validation {
-        case .ready(let selected):
-            model = selected
-        case .error(let message, let reason):
-            let errorItemId = ConversationIdentityKit.makeItemId(baseId: baseId, kind: "error", part: reason)
-            let errorMsg = Message(content: message, role: .assistant, turnId: turnId, baseId: baseId, itemId: errorItemId)
-            env.appendMessage(errorMsg)
-            logger.phase("turn end | baseId=\(baseId) | reason=\(reason)")
-            env.clearCurrentTurnIdIfMatches(turnId)
-            env.setIsLoading(false)
-            return
-        }
 
         env.setIsLoading(true)
         env.setErrorMessage(nil)

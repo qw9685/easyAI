@@ -205,6 +205,16 @@ struct SettingsView: View {
                             SecretsStore.shared.apiKey = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                         }
                 }
+
+                if configManager.useMockData {
+                    Text("当前使用假数据模式，无需填写 API Key。")
+                        .font(.caption)
+                        .foregroundColor(AppThemeSwift.textSecondary)
+                } else if !AppConfig.isUsableAPIKey(apiKeyText) {
+                    Text("未填写有效 API Key，发送消息会在请求前被拦截。")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
                 
                 HStack {
                         Text("最大 Token 数")
@@ -300,7 +310,7 @@ struct SettingsView: View {
 
     private var fullModelName: String {
         guard let name = viewModel.selectedModel?.name, !name.isEmpty else {
-            return "加载中..."
+            return viewModel.availableModels.isEmpty ? "未加载模型" : "请选择模型"
         }
         return name
     }

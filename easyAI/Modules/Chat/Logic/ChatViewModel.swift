@@ -435,27 +435,27 @@ final class ChatViewModel {
             return false
         }
 
-        let apiKey = AppConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !AppConfig.useMockData, apiKey.isEmpty {
-            errorMessage = "请先在设置中填写 OpenRouter API Key"
-            emitEvent(.switchToSettings)
-            return false
-        }
-
         let previewUserMessage = Message(
             content: content,
             role: .user,
             mediaContents: mediaContents
         )
-        let validation = modelSelection.validateSelection(
+        let validation = modelSelection.validateSendPrerequisites(
             selectedModel: selectedModel,
+            availableModels: availableModels,
             userMessage: previewUserMessage
         )
         switch validation {
-        case .ready:
+        case .ready(let model):
+            if selectedModel?.id != model.id {
+                selectedModel = model
+            }
             return true
-        case .error(let message, _):
+        case .error(let message, let reason):
             errorMessage = message
+            if reason == .missingAPIKey {
+                emitEvent(.switchToSettings)
+            }
             return false
         }
     }
