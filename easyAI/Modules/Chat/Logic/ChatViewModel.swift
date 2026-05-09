@@ -16,16 +16,68 @@ import RxCocoa
 
 @MainActor
 final class ChatViewModel {
+    private struct SendExecutionState {
+        enum Phase: Equatable {
+            case idle
+            case queued(turnId: UUID?)
+            case sending(turnId: UUID?)
+        }
+
+        var phase: Phase = .idle
+        var task: Task<Void, Never>?
+        var taskToken: UUID?
+
+        var isLoading: Bool {
+            if case .sending = phase {
+                return true
+            }
+            return false
+        }
+
+        var currentTurnId: UUID? {
+            switch phase {
+            case .idle:
+                return nil
+            case .queued(let turnId), .sending(let turnId):
+                return turnId
+            }
+        }
+
+        func updatingLoading(_ isLoading: Bool) -> SendExecutionState {
+            var next = self
+            next.phase = isLoading ? .sending(turnId: currentTurnId) : .idle
+            return next
+        }
+
+        func updatingTurnId(_ turnId: UUID?) -> SendExecutionState {
+            var next = self
+            switch phase {
+            case .idle, .queued:
+                next.phase = turnId == nil ? .idle : .queued(turnId: turnId)
+            case .sending:
+                next.phase = .sending(turnId: turnId)
+            }
+            return next
+        }
+    }
+
     private var messages: [Message] = [] {
         didSet {
             emitSnapshotIfNeeded()
         }
     }
-    private(set) var isLoading: Bool = false {
+    private var sendExecutionState: SendExecutionState = .init() {
         didSet {
-            isLoadingRelay.accept(isLoading)
+            guard oldValue.phase != sendExecutionState.phase else { return }
+            if oldValue.isLoading != sendExecutionState.isLoading {
+                isLoadingRelay.accept(sendExecutionState.isLoading)
+            }
             emitSnapshotIfNeeded()
         }
+    }
+    private(set) var isLoading: Bool {
+        get { sendExecutionState.isLoading }
+        set { sendExecutionState = sendExecutionState.updatingLoading(newValue) }
     }
     private(set) var errorMessage: String? {
         didSet {
@@ -73,7 +125,10 @@ final class ChatViewModel {
     private let isLoadingRelay = BehaviorRelay<Bool>(value: false)
     
     private var conversationId: UUID = UUID()
-    private var currentTurnId: UUID?
+    private var currentTurnId: UUID? {
+        get { sendExecutionState.currentTurnId }
+        set { sendExecutionState = sendExecutionState.updatingTurnId(newValue) }
+    }
     private var isBatchingSnapshot: Bool = false
     private var pendingMessageContentUpdates: [UUID: String] = [:]
     private var isMessageContentFlushScheduled: Bool = false
@@ -88,8 +143,14 @@ final class ChatViewModel {
     private let modelSelection: ModelSelectionCoordinator
     private let logger: ChatLogger
     private let sendMessageUseCase: ChatSendMessageUseCase
-    private var activeSendTask: Task<Void, Never>?
-    private var activeSendTaskToken: UUID?
+    private var activeSendTask: Task<Void, Never>? {
+        get { sendExecutionState.task }
+        set { sendExecutionState.task = newValue }
+    }
+    private var activeSendTaskToken: UUID? {
+        get { sendExecutionState.taskToken }
+        set { sendExecutionState.taskToken = newValue }
+    }
     private var latestSelectionRequestId: UUID?
     private var currentConversationId: String? {
         didSet { emitSnapshotIfNeeded() }
@@ -483,40 +544,29 @@ final class ChatViewModel {
 
     @MainActor
     private func cancelActiveGenerationForContextChange() {
-        activeSendTask?.cancel()
-        activeSendTask = nil
-        activeSendTaskToken = nil
-        sendMessageUseCase.cancelActive()
+        resetSendExecution(cancelUseCase: true)
         latestSelectionRequestId = nil
         if isSwitchingConversation {
             isSwitchingConversation = false
         }
-        if isLoading {
-            isLoading = false
-        }
-        currentTurnId = nil
     }
 
     /// UI 入口：停止当前生成
     @MainActor
     func stopGenerating() {
-        activeSendTask?.cancel()
-        activeSendTask = nil
-        activeSendTaskToken = nil
-        sendMessageUseCase.cancelActive()
+        let wasLoading = isLoading
+        resetSendExecution(cancelUseCase: true)
 
-        guard isLoading else { return }
+        guard wasLoading else { return }
         var updatedMessage: Message?
         var noticeMessageId: UUID?
         batchSnapshotUpdate {
-            isLoading = false
             if let index = messages.lastIndex(where: { $0.isStreaming }) {
                 messages[index].isStreaming = false
                 messages[index].wasStreamed = true
                 updatedMessage = messages[index]
                 noticeMessageId = messages[index].id
             }
-            currentTurnId = nil
         }
 
         let notice = ChatStopNotice(messageId: noticeMessageId, text: "已停止", timestamp: Date())
@@ -530,6 +580,25 @@ final class ChatViewModel {
         }
     }
 
+    @MainActor
+    private func resetSendExecution(cancelUseCase: Bool) {
+        activeSendTask?.cancel()
+        activeSendTask = nil
+        activeSendTaskToken = nil
+        if cancelUseCase {
+            sendMessageUseCase.cancelActive()
+        }
+        isLoading = false
+        currentTurnId = nil
+    }
+
+    @MainActor
+    private func finishSendPhaseIfMatches(_ turnId: UUID) {
+        guard currentTurnId == turnId else { return }
+        isLoading = false
+        currentTurnId = nil
+    }
+
     /// 发送入口（实际执行在 UseCase 内部）
     @MainActor
     func sendMessage(_ content: String, imageData: Data? = nil, imageMimeType: String? = nil, mediaContents: [MediaContent] = []) async {
@@ -537,9 +606,7 @@ final class ChatViewModel {
             ensureConversation: { self.ensureConversation() },
             setCurrentTurnId: { self.currentTurnId = $0 },
             clearCurrentTurnIdIfMatches: { turnId in
-                if self.currentTurnId == turnId {
-                    self.currentTurnId = nil
-                }
+                self.finishSendPhaseIfMatches(turnId)
             },
             getConversationUUID: { self.conversationId },
             getCurrentConversationId: { self.currentConversationId },
@@ -787,6 +854,7 @@ final class ChatViewModel {
             currentConversationId = transition.currentConversationId
             messages = transition.messages
             conversationId = transition.conversationId
+            isLoading = false
             currentTurnId = transition.currentTurnId
             if transition.shouldClearStopNotices {
                 stopNotices.removeAll()
